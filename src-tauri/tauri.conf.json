@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "devkit",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "identifier": "com.wooinwoo.devkit",
   "build": {
     "frontendDist": "../dist",
@@ -27,7 +27,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis", "app", "dmg", "deb", "rpm", "appimage"],
     "fileAssociations": [
       {
         "ext": ["md", "markdown"],
