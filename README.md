@@ -1,33 +1,34 @@
 # devkit
 
-Typora 스타일 **마크다운 에디터** 데스크톱 앱. 입력하는 자리에서 바로 서식이
-되는 seamless WYSIWYG. Tauri 2 로 패키징한 오프라인 앱.
+로컬 문서를 **한 창에서** 보는 데스크톱 뷰어/에디터. Tauri 2, 오프라인.
+
+## 지원 포맷
+
+- **마크다운** — Typora식 seamless WYSIWYG(Milkdown), 편집·저장
+- **PDF** — pdf.js 렌더
+- **엑셀** (xlsx·xls) — SheetJS, 시트별 표
+- **PowerPoint** (pptx·ppt) — pptx-preview 슬라이드
+- **한글** (hwp·hwpx) — rhwp(WASM) SVG 렌더
+- **이미지** (png·jpg·gif·webp·svg), **영상** (mp4·webm)
+- **HTML** — 샌드박스 iframe, **텍스트/코드** (txt·json·csv·js·ts…)
 
 ## 기능
 
-- **seamless 라이브 편집** — 소스/프리뷰 분리 없이 입력 자리에서 즉시 서식
-  (Milkdown Crepe, GFM 표·체크박스·코드 하이라이트)
-- **문서 / 소스 토글** — 원문 마크다운 편집도 가능, Ctrl/Cmd+S 저장
-- **파일 / 폴더 열기** — 여러 파일 탭 + 폴더 트리
-- **아웃라인(목차) 사이드바** — 제목 구조로 점프, 파일↔목차 탭 전환
-- **사이드바 접기 / 드래그 폭 조절** (Ctrl+B)
-- **확대 / 축소** — Ctrl +/−/0, 상태바에 배율 표시
-- **집중 모드** — 크롬 숨김 (F8)
-- **OS 파일 연결** — `.md`/`.html` 더블클릭 → devkit (single instance)
+- 파일/폴더 열기 → 탭 + 사이드바 트리, **폴더 새로고침**
+- **최근 파일** (껐다 켜도 유지)
+- 아웃라인(목차) 사이드바, 사이드바 접기/드래그 폭조절
+- 확대/축소(Ctrl +/-/0), 집중 모드(F8)
+- OS 파일 연결(.md/.html/.hwp 더블클릭 → devkit), single instance
 
-## 스택
-
-Tauri 2 (Rust 셸) · React 19 · TypeScript · Vite · Tailwind 4 ·
-Milkdown Crepe(ProseMirror+remark). 파일 IO 는 Rust 커맨드.
-
-## 개발
+## 개발 / 배포
 
 ```bash
 npm install
-npm run tauri dev      # 데스크톱 앱
-npm run tauri build    # 실행파일
+npm run tauri dev
+npm run tauri build   # 또는 태그 push → GitHub Actions 가 3 OS 인스톨러 빌드
 ```
 
-## 배포
+## 한계 (정직)
 
-태그(`v*`) push → GitHub Actions 가 Windows(NSIS)/macOS/Linux 인스톨러 빌드.
+hwp·pptx·xlsx 는 오픈소스 렌더러 기반이라 복잡한 서식·차트는 원본과 다를 수
+있습니다(레이아웃 근사). 데이터·기본 서식 확인 용도.

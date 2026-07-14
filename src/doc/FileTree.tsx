@@ -1,4 +1,4 @@
-import { type DocKind, type TreeNode } from "./types";
+import { type DocKind, type TreeNode, kindOf } from "./types";
 import { useDocs } from "./store";
 
 const BADGE: Record<DocKind, string> = {
@@ -9,6 +9,8 @@ const BADGE: Record<DocKind, string> = {
   text: "TXT",
   hwp: "HWP",
   pdf: "PDF",
+  xlsx: "XLS",
+  pptx: "PPT",
 };
 
 function KindBadge({ kind }: { kind?: DocKind }) {
@@ -64,7 +66,8 @@ function Node({ node }: { node: TreeNode }) {
 }
 
 export function FileTree() {
-  const { folder, openDocs, activePath, select } = useDocs();
+  const { folder, openDocs, activePath, select, openPaths, recentFiles } =
+    useDocs();
 
   // 폴더가 열려 있으면 트리, 아니면 '열린 문서' 평면 리스트로 폴백
   if (folder) {
@@ -105,6 +108,31 @@ export function FileTree() {
           </li>
         ))}
       </ul>
+    );
+  }
+
+  // 열린 문서·폴더가 없으면 최근 파일
+  if (recentFiles.length > 0) {
+    return (
+      <div>
+        <p className="px-2 pt-1 pb-1.5 font-mono text-[10px] uppercase tracking-wide text-faint">
+          최근 파일
+        </p>
+        <ul className="flex flex-col">
+          {recentFiles.map((p) => (
+            <li key={p}>
+              <button
+                type="button"
+                onClick={() => openPaths([p])}
+                className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[13px] text-text transition-colors hover:bg-surface/60"
+              >
+                <KindBadge kind={kindOf(p) ?? undefined} />
+                <span className="truncate">{p.split(/[\\/]/).pop()}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
     );
   }
 

@@ -2,8 +2,10 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useReducer,
+  useState,
 } from "react";
 import { listDocs, pickFiles, pickFolder, readDoc, writeDoc } from "./fs";
 import {
@@ -138,14 +140,37 @@ interface DocCtx extends ViewerState {
   close: (path: string) => void;
   setViewMode: (m: ViewMode) => void;
   toggleScripts: () => void;
+  recentFiles: string[];
+  refreshFolder: () => Promise<void>;
 }
 
 const Ctx = createContext<DocCtx | null>(null);
 
+const RECENT_KEY = "devkit.recent.v1";
+
 export function DocProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initial);
 
+  const [recentFiles, setRecentFiles] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(RECENT_KEY, JSON.stringify(recentFiles));
+    } catch {
+      /* ignore */
+    }
+  }, [recentFiles]);
+
   const loadDoc = useCallback(async (path: string) => {
+    // 실제 파일(다이얼로그/폴더/파일연결)만 최근에 기록 (테스트 URL 제외)
+    if (/[\\/]/.test(path) && !path.startsWith("/samples/")) {
+      setRecentFiles((prev) => [path, ...prev.filter((p) => p !== path)].slice(0, 20));
+    }
     dispatch({ t: "DOC_START", path });
     const kind = kindOf(path);
     // 이미지·영상은 바이너리 → 텍스트로 읽지 않고 경로만 (뷰어가 asset 로 렌더)
@@ -182,6 +207,13 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
     dispatch({ t: "OPEN_FOLDER", root, tree });
   }, []);
 
+  const folderRoot = state.folder?.root;
+  const refreshFolder = useCallback(async () => {
+    if (!folderRoot) return;
+    const tree = await listDocs(folderRoot);
+    dispatch({ t: "OPEN_FOLDER", root: folderRoot, tree });
+  }, [folderRoot]);
+
   const save = useCallback(
     async (path: string) => {
       const doc = state.openDocs.find((d) => d.path === path);
@@ -208,8 +240,18 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
       close: (path) => dispatch({ t: "CLOSE", path }),
       setViewMode: (mode) => dispatch({ t: "VIEW_MODE", mode }),
       toggleScripts: () => dispatch({ t: "TOGGLE_SCRIPTS" }),
+      recentFiles,
+      refreshFolder,
     }),
-    [state, openFilesDialog, openFolderDialog, openPaths, save],
+    [
+      state,
+      openFilesDialog,
+      openFolderDialog,
+      openPaths,
+      save,
+      recentFiles,
+      refreshFolder,
+    ],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

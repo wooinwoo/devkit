@@ -10,7 +10,8 @@ import {
 
 export function Sidebar() {
   const { sidebarWidth, sidebarTab, set, toggleSidebar } = usePrefs();
-  const { openFilesDialog, openFolderDialog } = useDocs();
+  const { openFilesDialog, openFolderDialog, folder, refreshFolder } =
+    useDocs();
 
   function startResize(e: React.PointerEvent) {
     e.preventDefault();
@@ -68,6 +69,24 @@ export function Sidebar() {
           폴더 열기
         </button>
       </div>
+
+      {folder && (
+        <div className="flex items-center justify-between gap-2 px-4 pb-2">
+          <span className="truncate font-mono text-[10px] uppercase tracking-wide text-faint">
+            <span className="text-accent">/</span>{" "}
+            {folder.root.split(/[\\/]/).pop()}
+          </span>
+          <button
+            type="button"
+            onClick={() => void refreshFolder()}
+            aria-label="폴더 새로고침"
+            title="폴더 새로고침"
+            className="shrink-0 text-faint transition-colors hover:text-fg"
+          >
+            ↻
+          </button>
+        </div>
+      )}
 
       {/* 파일 / 목차 탭 */}
       <div

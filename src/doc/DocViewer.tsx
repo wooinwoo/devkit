@@ -6,6 +6,8 @@ import { HwpView } from "./HwpView";
 import { ImageView, VideoView } from "./MediaView";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { PdfView } from "./PdfView";
+import { PptxView } from "./PptxView";
+import { XlsxView } from "./XlsxView";
 import { useDocs } from "./store";
 import { isTextKind } from "./types";
 
@@ -87,6 +89,10 @@ export function DocViewer() {
     body = <HwpView path={doc.path} />;
   } else if (doc.kind === "pdf") {
     body = <PdfView path={doc.path} />;
+  } else if (doc.kind === "xlsx") {
+    body = <XlsxView path={doc.path} />;
+  } else if (doc.kind === "pptx") {
+    body = <PptxView path={doc.path} />;
   } else if (doc.kind === "text") {
     body = sourceArea; // 일반 텍스트는 항상 소스 편집
   } else if (viewMode === "source") {

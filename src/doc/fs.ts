@@ -6,6 +6,10 @@ import { ALL_EXTS, type TreeNode, basename, kindOf } from "./types";
 
 const DOC_EXTS = ALL_EXTS;
 
+// Tauri 런타임 여부 — 없으면(브라우저 개발/테스트) fetch 로 폴백해 뷰어를 검증한다.
+const isTauri =
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
 /** 파일 열기 다이얼로그 (다중 선택). 취소 시 빈 배열. */
 export async function pickFiles(): Promise<string[]> {
   const sel = await open({
@@ -22,15 +26,29 @@ export async function pickFolder(): Promise<string | null> {
   return typeof sel === "string" ? sel : null;
 }
 
-/** 파일 원문 읽기 (Rust 커맨드 — 임의 경로 OK) */
-export function readDoc(path: string): Promise<string> {
-  return invoke<string>("read_file", { path });
+/** 파일 원문 읽기 (Rust 커맨드 — 임의 경로 OK). 브라우저 테스트 시 fetch 폴백 */
+export async function readDoc(path: string): Promise<string> {
+  if (isTauri) return invoke<string>("read_file", { path });
+  return (await fetch(path)).text();
 }
 
-/** 바이너리 바이트 읽기 (hwp 등) */
+/** 바이너리 바이트 읽기 (hwp·pdf·xlsx·pptx 등). 브라우저 테스트 시 fetch 폴백 */
 export async function readBinary(path: string): Promise<Uint8Array> {
-  const nums = await invoke<number[]>("read_binary", { path });
-  return Uint8Array.from(nums);
+  if (isTauri) {
+    const nums = await invoke<number[]>("read_binary", { path });
+    return Uint8Array.from(nums);
+  }
+  const buf = await (await fetch(path)).arrayBuffer();
+  return new Uint8Array(buf);
+}
+
+/** 이미지·영상 src — Tauri 는 asset 프로토콜, 브라우저는 경로 그대로 */
+export async function mediaSrc(path: string): Promise<string> {
+  if (isTauri) {
+    const { convertFileSrc } = await import("@tauri-apps/api/core");
+    return convertFileSrc(path);
+  }
+  return path;
 }
 
 /** 파일 저장 (Rust 커맨드 — 원본 경로 덮어쓰기) */
