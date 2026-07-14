@@ -6,3 +6,6 @@ dist
 
 # Rust / Tauri
 src-tauri/target
+
+# 로컬 다운로드 인스톨러
+dist-installers
