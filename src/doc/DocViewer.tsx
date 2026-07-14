@@ -1,13 +1,15 @@
+import { useRef } from "react";
+import type { Crepe } from "@milkdown/crepe";
 import { EmptyState } from "./EmptyState";
 import { HtmlView } from "./HtmlView";
-import { MarkdownView } from "./MarkdownView";
+import { MarkdownEditor } from "./MarkdownEditor";
 import { useDocs } from "./store";
 
 function Segmented() {
   const { viewMode, setViewMode } = useDocs();
-  const opts: { id: "preview" | "edit"; label: string }[] = [
-    { id: "preview", label: "보기" },
-    { id: "edit", label: "편집" },
+  const opts: { id: "rich" | "source"; label: string }[] = [
+    { id: "rich", label: "문서" },
+    { id: "source", label: "소스" },
   ];
   return (
     <div className="flex overflow-hidden rounded-full border border-line-soft">
@@ -33,10 +35,12 @@ export function DocViewer() {
     activeDoc,
     viewMode,
     edit,
+    setBaseline,
     save,
     htmlAllowScripts,
     toggleScripts,
   } = useDocs();
+  const crepeRef = useRef<Crepe | null>(null);
 
   if (!activeDoc) return <EmptyState />;
   const doc = activeDoc;
@@ -58,28 +62,37 @@ export function DocViewer() {
 
   const dirty = doc.content !== doc.saved;
 
-  const rendered =
-    doc.kind === "markdown" ? (
-      <MarkdownView content={doc.content} />
+  const body =
+    viewMode === "source" ? (
+      <textarea
+        value={doc.content}
+        onChange={(e) => edit(doc.path, e.target.value)}
+        spellCheck={false}
+        className="size-full resize-none bg-transparent p-6 font-mono text-[13px] leading-relaxed text-text outline-none"
+        aria-label={`${doc.name} 소스`}
+      />
+    ) : doc.kind === "markdown" ? (
+      <div className="h-full overflow-auto">
+        <MarkdownEditor
+          docKey={doc.path}
+          defaultValue={doc.content}
+          onChange={(md) => edit(doc.path, md)}
+          onReady={(c) => {
+            crepeRef.current = c;
+            // 에디터가 정규화한 값을 기준선으로 (열자마자 dirty 방지)
+            requestAnimationFrame(() => {
+              try {
+                setBaseline(doc.path, c.getMarkdown());
+              } catch {
+                /* ignore */
+              }
+            });
+          }}
+        />
+      </div>
     ) : (
       <HtmlView content={doc.content} allowScripts={htmlAllowScripts} />
     );
-
-  const editor = (
-    <textarea
-      value={doc.content}
-      onChange={(e) => edit(doc.path, e.target.value)}
-      onKeyDown={(e) => {
-        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
-          e.preventDefault();
-          if (dirty) void save(doc.path);
-        }
-      }}
-      spellCheck={false}
-      className="size-full resize-none bg-transparent p-5 font-mono text-[13px] leading-relaxed text-text outline-none"
-      aria-label={`${doc.name} 소스`}
-    />
-  );
 
   return (
     <div className="flex h-full flex-col">
@@ -90,7 +103,7 @@ export function DocViewer() {
           {dirty && <span className="text-faint">· 저장 안 됨</span>}
         </span>
         <div className="flex items-center gap-2.5">
-          {doc.kind === "html" && (
+          {doc.kind === "html" && viewMode === "rich" && (
             <label className="flex cursor-pointer items-center gap-1.5 font-mono text-xs text-muted">
               <input
                 type="checkbox"
@@ -113,25 +126,7 @@ export function DocViewer() {
         </div>
       </div>
 
-      {/* 본문 */}
-      <div className="min-h-0 flex-1">
-        {viewMode === "preview" ? (
-          <div className="h-full overflow-auto px-6 py-8">
-            {doc.kind === "html" ? (
-              <div className="h-full">{rendered}</div>
-            ) : (
-              rendered
-            )}
-          </div>
-        ) : (
-          <div className="grid h-full grid-cols-2 divide-x divide-line-soft">
-            <div className="min-h-0 overflow-auto">{editor}</div>
-            <div className="min-h-0 overflow-auto bg-bg-deep/20 px-5 py-6">
-              {rendered}
-            </div>
-          </div>
-        )}
-      </div>
+      <div className="min-h-0 flex-1">{body}</div>
     </div>
   );
 }

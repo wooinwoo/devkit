@@ -21,6 +21,7 @@ type Action =
   | { t: "DOC_DONE"; path: string; content: string }
   | { t: "DOC_FAIL"; path: string; error: string }
   | { t: "EDIT"; path: string; content: string }
+  | { t: "BASELINE"; path: string; content: string }
   | { t: "MARK_SAVED"; path: string }
   | { t: "SELECT"; path: string }
   | { t: "CLOSE"; path: string }
@@ -31,7 +32,7 @@ const initial: ViewerState = {
   folder: null,
   openDocs: [],
   activePath: null,
-  viewMode: "preview",
+  viewMode: "rich",
   htmlAllowScripts: false,
 };
 
@@ -83,6 +84,17 @@ function reducer(s: ViewerState, a: Action): ViewerState {
         ),
       };
 
+    // 에디터가 정규화한 마크다운을 기준선으로 (content=saved) → 거짓 dirty 제거
+    case "BASELINE":
+      return {
+        ...s,
+        openDocs: s.openDocs.map((d) =>
+          d.path === a.path
+            ? { ...d, content: a.content, saved: a.content }
+            : d,
+        ),
+      };
+
     case "MARK_SAVED":
       return {
         ...s,
@@ -119,6 +131,7 @@ interface DocCtx extends ViewerState {
   openFolderDialog: () => Promise<void>;
   openPaths: (paths: string[]) => Promise<void>;
   edit: (path: string, content: string) => void;
+  setBaseline: (path: string, content: string) => void;
   save: (path: string) => Promise<void>;
   select: (path: string) => void;
   close: (path: string) => void;
@@ -181,6 +194,8 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
       openFolderDialog,
       openPaths,
       edit: (path, content) => dispatch({ t: "EDIT", path, content }),
+      setBaseline: (path, content) =>
+        dispatch({ t: "BASELINE", path, content }),
       save,
       select: (path) => dispatch({ t: "SELECT", path }),
       close: (path) => dispatch({ t: "CLOSE", path }),

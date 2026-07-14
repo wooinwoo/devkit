@@ -1,16 +1,18 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { DocViewer } from "./doc/DocViewer";
-import { FileTree } from "./doc/FileTree";
+import { Sidebar } from "./doc/Sidebar";
+import { StatusBar } from "./doc/StatusBar";
+import { TabBar } from "./doc/TabBar";
 import { startupFile } from "./doc/fs";
 import { DocProvider, useDocs } from "./doc/store";
-import { TabBar } from "./doc/TabBar";
-import { basename } from "./doc/types";
+import { WorkspaceProvider, usePrefs } from "./workspace/prefs";
 
 function Shell() {
-  const { openFilesDialog, openFolderDialog, openPaths, folder } = useDocs();
+  const { openPaths, save, activeDoc } = useDocs();
+  const prefs = usePrefs();
 
-  // OS 파일 연결: cold start argv + warm start emit 수신
+  // OS 파일 연결: cold start argv + warm start emit
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     startupFile()
@@ -28,61 +30,63 @@ function Shell() {
     return () => unlisten?.();
   }, [openPaths]);
 
+  // 전역 단축키: 줌(Ctrl +/-/0), 저장(Ctrl+S), 사이드바(Ctrl+B), 집중(F8)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && (e.key === "=" || e.key === "+")) {
+        e.preventDefault();
+        prefs.zoomIn();
+      } else if (mod && e.key === "-") {
+        e.preventDefault();
+        prefs.zoomOut();
+      } else if (mod && e.key === "0") {
+        e.preventDefault();
+        prefs.zoomReset();
+      } else if (mod && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (activeDoc) void save(activeDoc.path);
+      } else if (mod && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        prefs.toggleSidebar();
+      } else if (e.key === "F8") {
+        e.preventDefault();
+        prefs.toggleFocus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [prefs, activeDoc, save]);
+
+  const showChrome = !prefs.focus;
+
   return (
     <div className="flex h-svh overflow-hidden">
-      {/* 사이드바 */}
-      <aside className="flex w-64 shrink-0 flex-col border-r border-line-soft bg-bg-deep/50">
-        <div className="px-4 pt-5 pb-3">
-          <div className="flex items-center gap-2">
-            <span className="flex size-7 items-center justify-center rounded-md bg-fg font-mono text-sm font-bold text-bg">
-              d
-            </span>
-            <span className="font-bold tracking-tight text-fg">devkit</span>
-          </div>
-        </div>
+      {showChrome && !prefs.sidebarCollapsed && <Sidebar />}
 
-        <div className="flex gap-2 px-4 pb-3">
-          <button
-            type="button"
-            onClick={openFilesDialog}
-            className="flex-1 rounded-lg bg-fg px-3 py-1.5 text-xs font-semibold text-bg transition-colors hover:bg-accent hover:text-white"
-          >
-            파일 열기
-          </button>
-          <button
-            type="button"
-            onClick={openFolderDialog}
-            className="flex-1 rounded-lg border border-line-strong px-3 py-1.5 text-xs font-semibold text-fg transition-colors hover:border-fg"
-          >
-            폴더 열기
-          </button>
-        </div>
-
-        {folder && (
-          <p className="truncate px-4 pb-2 font-mono text-[10px] uppercase tracking-wide text-faint">
-            <span className="text-accent">/</span> {basename(folder.root)}
-          </p>
-        )}
-
-        <div className="min-h-0 flex-1 overflow-auto px-2 pb-2">
-          <FileTree />
-        </div>
-
-        <footer className="border-t border-line-soft px-4 py-3">
-          <p className="font-mono text-[10px] leading-relaxed text-faint">
-            markdown · html viewer
-            <br />
-            by wooinwoo
-          </p>
-        </footer>
-      </aside>
-
-      {/* 본문 */}
-      <main className="flex min-w-0 flex-1 flex-col">
-        <TabBar />
-        <div className="min-h-0 flex-1">
+      <main className="relative flex min-w-0 flex-1 flex-col">
+        {showChrome && <TabBar />}
+        <div
+          className="min-h-0 flex-1"
+          style={{ ["--editor-zoom" as string]: prefs.zoom }}
+        >
           <DocViewer />
         </div>
+        {showChrome && <StatusBar />}
+
+        {(prefs.sidebarCollapsed || prefs.focus) && (
+          <button
+            type="button"
+            onClick={() =>
+              prefs.focus
+                ? prefs.toggleFocus()
+                : prefs.set("sidebarCollapsed", false)
+            }
+            className="absolute left-3 top-3 z-10 rounded-md border border-line-soft bg-bg px-2.5 py-1 font-mono text-xs text-muted shadow-sm transition-colors hover:text-fg"
+          >
+            {prefs.focus ? "집중 해제 · F8" : "사이드바 · Ctrl+B"}
+          </button>
+        )}
       </main>
     </div>
   );
@@ -90,8 +94,10 @@ function Shell() {
 
 export function App() {
   return (
-    <DocProvider>
-      <Shell />
-    </DocProvider>
+    <WorkspaceProvider>
+      <DocProvider>
+        <Shell />
+      </DocProvider>
+    </WorkspaceProvider>
   );
 }

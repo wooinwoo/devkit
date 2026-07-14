@@ -20,7 +20,7 @@ export interface OpenDoc {
   error?: string;
 }
 
-export type ViewMode = "preview" | "edit";
+export type ViewMode = "rich" | "source";
 
 export interface ViewerState {
   folder: { root: string; tree: TreeNode[] } | null;
