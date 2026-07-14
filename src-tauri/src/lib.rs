@@ -6,20 +6,33 @@ use tauri::{Emitter, Manager};
 #[derive(Default)]
 struct OpenedFile(Mutex<Option<String>>);
 
-fn is_doc(name: &str) -> bool {
-    let l = name.to_lowercase();
-    l.ends_with(".md") || l.ends_with(".markdown") || l.ends_with(".html") || l.ends_with(".htm")
+const IMG_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
+const VID_EXTS: &[&str] = &["mp4", "webm", "ogv", "mov", "m4v"];
+const TXT_EXTS: &[&str] = &[
+    "txt", "text", "log", "json", "jsonc", "yml", "yaml", "toml", "csv", "tsv", "xml", "ini",
+    "conf", "env", "js", "ts", "jsx", "tsx", "css", "scss", "py", "rs", "go", "java", "c", "cpp",
+    "h", "sh", "sql",
+];
+
+fn ext_of(name: &str) -> String {
+    name.rsplit('.').next().unwrap_or("").to_lowercase()
 }
 
 fn doc_kind(name: &str) -> Option<&'static str> {
-    let l = name.to_lowercase();
-    if l.ends_with(".md") || l.ends_with(".markdown") {
-        Some("markdown")
-    } else if l.ends_with(".html") || l.ends_with(".htm") {
-        Some("html")
-    } else {
-        None
+    let e = ext_of(name);
+    match e.as_str() {
+        "md" | "markdown" => Some("markdown"),
+        "html" | "htm" => Some("html"),
+        "hwp" | "hwpx" => Some("hwp"),
+        _ if IMG_EXTS.contains(&e.as_str()) => Some("image"),
+        _ if VID_EXTS.contains(&e.as_str()) => Some("video"),
+        _ if TXT_EXTS.contains(&e.as_str()) => Some("text"),
+        _ => None,
     }
+}
+
+fn is_doc(name: &str) -> bool {
+    doc_kind(name).is_some()
 }
 
 /// argv 에서 문서 파일 경로만 골라냄 (실행파일 경로·플래그 제외).
@@ -108,6 +121,12 @@ fn save_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| e.to_string())
 }
 
+/// 바이너리 파일 바이트 읽기 (hwp 등 — 프론트에서 Uint8Array 로 처리).
+#[tauri::command]
+fn read_binary(path: String) -> Result<Vec<u8>, String> {
+    std::fs::read(&path).map_err(|e| e.to_string())
+}
+
 /// 프론트가 최초 실행 시 조회: cold start 로 넘어온 파일 경로.
 #[tauri::command]
 fn get_opened_file(app: tauri::AppHandle) -> Option<String> {
@@ -138,6 +157,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_docs,
             read_file,
+            read_binary,
             save_file,
             get_opened_file
         ])

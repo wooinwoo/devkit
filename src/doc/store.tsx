@@ -12,6 +12,7 @@ import {
   type ViewMode,
   type ViewerState,
   basename,
+  isTextKind,
   kindOf,
 } from "./types";
 
@@ -146,6 +147,12 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
 
   const loadDoc = useCallback(async (path: string) => {
     dispatch({ t: "DOC_START", path });
+    const kind = kindOf(path);
+    // 이미지·영상은 바이너리 → 텍스트로 읽지 않고 경로만 (뷰어가 asset 로 렌더)
+    if (kind && !isTextKind(kind)) {
+      dispatch({ t: "DOC_DONE", path, content: "" });
+      return;
+    }
     try {
       const content = await readDoc(path);
       dispatch({ t: "DOC_DONE", path, content });

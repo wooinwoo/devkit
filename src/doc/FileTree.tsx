@@ -1,17 +1,24 @@
-import { type TreeNode } from "./types";
+import { type DocKind, type TreeNode } from "./types";
 import { useDocs } from "./store";
 
-function KindBadge({ kind }: { kind?: "markdown" | "html" }) {
+const BADGE: Record<DocKind, string> = {
+  markdown: "MD",
+  html: "HTML",
+  image: "IMG",
+  video: "VID",
+  text: "TXT",
+  hwp: "HWP",
+};
+
+function KindBadge({ kind }: { kind?: DocKind }) {
   if (!kind) return null;
   return (
     <span
       className={`shrink-0 rounded px-1 py-px font-mono text-[9px] font-semibold ${
-        kind === "markdown"
-          ? "bg-accent/12 text-accent"
-          : "bg-fg/8 text-muted"
+        kind === "markdown" ? "bg-accent/12 text-accent" : "bg-fg/8 text-muted"
       }`}
     >
-      {kind === "markdown" ? "MD" : "HTML"}
+      {BADGE[kind]}
     </span>
   );
 }

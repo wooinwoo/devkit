@@ -10,9 +10,9 @@ export function EmptyState() {
       <h2 className="mt-4 text-2xl font-bold tracking-tight text-fg">
         문서를 열어보세요
       </h2>
-      <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted">
-        마크다운(.md)과 HTML 파일을 열어서 렌더링해 봅니다. 여러 개를 탭으로
-        띄우고, 폴더째 열어 사이드바에서 넘겨볼 수 있어요.
+      <p className="mt-2 max-w-md text-sm leading-relaxed text-muted">
+        마크다운·HTML·이미지·영상·한글(hwp)·텍스트를 열어봅니다. 여러 개를
+        탭으로 띄우고, 폴더째 열어 사이드바에서 넘겨볼 수 있어요.
       </p>
       <div className="mt-8 flex gap-3">
         <button

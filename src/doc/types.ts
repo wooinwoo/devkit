@@ -1,4 +1,23 @@
-export type DocKind = "markdown" | "html";
+export type DocKind =
+  | "markdown"
+  | "html"
+  | "image"
+  | "video"
+  | "text"
+  | "hwp";
+
+/** 텍스트로 읽어 편집 가능한 종류인지 (이미지·영상은 바이너리라 제외) */
+export function isTextKind(k: DocKind): boolean {
+  return k === "markdown" || k === "html" || k === "text";
+}
+
+const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
+const VIDEO_EXTS = ["mp4", "webm", "ogv", "mov", "m4v"];
+const TEXT_EXTS = [
+  "txt", "text", "log", "json", "jsonc", "yml", "yaml", "toml", "csv", "tsv",
+  "xml", "ini", "conf", "env", "js", "ts", "jsx", "tsx", "css", "scss",
+  "py", "rs", "go", "java", "c", "cpp", "h", "sh", "sql",
+];
 
 /** 사이드바 파일 트리 노드 */
 export interface TreeNode {
@@ -32,10 +51,21 @@ export interface ViewerState {
 
 export function kindOf(path: string): DocKind | null {
   const lower = path.toLowerCase();
-  if (lower.endsWith(".md") || lower.endsWith(".markdown")) return "markdown";
-  if (lower.endsWith(".html") || lower.endsWith(".htm")) return "html";
+  const ext = lower.split(".").pop() ?? "";
+  if (ext === "md" || ext === "markdown") return "markdown";
+  if (ext === "html" || ext === "htm") return "html";
+  if (ext === "hwp" || ext === "hwpx") return "hwp";
+  if (IMAGE_EXTS.includes(ext)) return "image";
+  if (VIDEO_EXTS.includes(ext)) return "video";
+  if (TEXT_EXTS.includes(ext)) return "text";
   return null;
 }
+
+/** 열기 다이얼로그·폴더 스캔에서 허용할 전체 확장자 */
+export const ALL_EXTS = [
+  "md", "markdown", "html", "htm", "hwp", "hwpx",
+  ...IMAGE_EXTS, ...VIDEO_EXTS, ...TEXT_EXTS,
+];
 
 export function basename(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
