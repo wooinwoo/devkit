@@ -1,15 +1,27 @@
-import { useRef } from "react";
+import { Suspense, lazy, useRef } from "react";
 import type { Crepe } from "@milkdown/crepe";
 import { EmptyState } from "./EmptyState";
 import { HtmlView } from "./HtmlView";
-import { HwpView } from "./HwpView";
 import { ImageView, VideoView } from "./MediaView";
-import { MarkdownEditor } from "./MarkdownEditor";
-import { PdfView } from "./PdfView";
-import { PptxView } from "./PptxView";
-import { XlsxView } from "./XlsxView";
 import { useDocs } from "./store";
 import { isTextKind } from "./types";
+
+// 무거운 뷰어는 열 때만 로드 (초기 번들·시작 속도 개선)
+const MarkdownEditor = lazy(() =>
+  import("./MarkdownEditor").then((m) => ({ default: m.MarkdownEditor })),
+);
+const HwpView = lazy(() =>
+  import("./HwpView").then((m) => ({ default: m.HwpView })),
+);
+const PdfView = lazy(() =>
+  import("./PdfView").then((m) => ({ default: m.PdfView })),
+);
+const XlsxView = lazy(() =>
+  import("./XlsxView").then((m) => ({ default: m.XlsxView })),
+);
+const PptxView = lazy(() =>
+  import("./PptxView").then((m) => ({ default: m.PptxView })),
+);
 
 function Segmented() {
   const { viewMode, setViewMode } = useDocs();
@@ -145,7 +157,13 @@ export function DocViewer() {
           {canEdit && (
             <button
               type="button"
-              onClick={() => void save(doc.path)}
+              onClick={() => {
+                const latest =
+                  doc.kind === "markdown" && crepeRef.current
+                    ? crepeRef.current.getMarkdown()
+                    : undefined;
+                void save(doc.path, latest);
+              }}
               disabled={!dirty}
               className="rounded-full border border-line-strong px-3.5 py-1 font-mono text-xs font-semibold text-fg transition-colors enabled:hover:border-fg disabled:opacity-35"
             >
@@ -155,7 +173,17 @@ export function DocViewer() {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1">{body}</div>
+      <div className="min-h-0 flex-1">
+        <Suspense
+          fallback={
+            <div className="flex h-full items-center justify-center text-sm text-faint">
+              불러오는 중…
+            </div>
+          }
+        >
+          {body}
+        </Suspense>
+      </div>
     </div>
   );
 }

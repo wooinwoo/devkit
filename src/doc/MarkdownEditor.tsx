@@ -14,8 +14,13 @@ function Inner({
 }) {
   useEditor((root) => {
     const crepe = new Crepe({ root, defaultValue });
+    // 매 키 입력마다 store 갱신·리렌더하면 렉 → 디바운스
+    let timer: ReturnType<typeof setTimeout> | undefined;
     crepe.on((listener) => {
-      listener.markdownUpdated((_ctx, md) => onChange(md));
+      listener.markdownUpdated((_ctx, md) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => onChange(md), 250);
+      });
     });
     onReady(crepe);
     return crepe;

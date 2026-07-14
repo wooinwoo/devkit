@@ -5,9 +5,17 @@ import {
   useEffect,
   useMemo,
   useReducer,
+  useRef,
   useState,
 } from "react";
-import { listDocs, pickFiles, pickFolder, readDoc, writeDoc } from "./fs";
+import {
+  listDocs,
+  pickFiles,
+  pickFolder,
+  readDoc,
+  watchFolder,
+  writeDoc,
+} from "./fs";
 import {
   type OpenDoc,
   type TreeNode,
@@ -135,7 +143,7 @@ interface DocCtx extends ViewerState {
   openPaths: (paths: string[]) => Promise<void>;
   edit: (path: string, content: string) => void;
   setBaseline: (path: string, content: string) => void;
-  save: (path: string) => Promise<void>;
+  save: (path: string, content?: string) => Promise<void>;
   select: (path: string) => void;
   close: (path: string) => void;
   setViewMode: (m: ViewMode) => void;
@@ -200,11 +208,20 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
     await openPaths(paths);
   }, [openPaths]);
 
+  const unwatchRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => unwatchRef.current?.(), []);
+
   const openFolderDialog = useCallback(async () => {
     const root = await pickFolder();
     if (!root) return;
     const tree = await listDocs(root);
     dispatch({ t: "OPEN_FOLDER", root, tree });
+    // 폴더 자동 동기화: 변경 시 재스캔
+    unwatchRef.current?.();
+    unwatchRef.current = await watchFolder(root, async () => {
+      const t = await listDocs(root);
+      dispatch({ t: "OPEN_FOLDER", root, tree: t });
+    });
   }, []);
 
   const folderRoot = state.folder?.root;
@@ -215,10 +232,15 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
   }, [folderRoot]);
 
   const save = useCallback(
-    async (path: string) => {
+    async (path: string, contentOverride?: string) => {
       const doc = state.openDocs.find((d) => d.path === path);
       if (!doc) return;
-      await writeDoc(path, doc.content);
+      const content = contentOverride ?? doc.content;
+      await writeDoc(path, content);
+      // 디바운스로 미반영된 최신 내용을 저장하는 경우 상태도 동기화
+      if (contentOverride !== undefined && contentOverride !== doc.content) {
+        dispatch({ t: "EDIT", path, content });
+      }
       dispatch({ t: "MARK_SAVED", path });
     },
     [state.openDocs],

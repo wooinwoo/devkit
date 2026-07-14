@@ -66,4 +66,21 @@ export function startupFile(): Promise<string | null> {
   return invoke<string | null>("get_opened_file");
 }
 
+/** 폴더 변경 감시 — 파일 추가/삭제/수정 시 onChange 호출. unwatch 반환 */
+export async function watchFolder(
+  root: string,
+  onChange: () => void,
+): Promise<() => void> {
+  if (!isTauri) return () => {};
+  try {
+    const { watch } = await import("@tauri-apps/plugin-fs");
+    return await watch(root, () => onChange(), {
+      recursive: true,
+      delayMs: 600,
+    });
+  } catch {
+    return () => {};
+  }
+}
+
 export { basename, kindOf };
