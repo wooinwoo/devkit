@@ -8,6 +8,7 @@ const BADGE: Record<DocKind, string> = {
   video: "VID",
   text: "TXT",
   hwp: "HWP",
+  pdf: "PDF",
 };
 
 function KindBadge({ kind }: { kind?: DocKind }) {

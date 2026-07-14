@@ -24,6 +24,7 @@ fn doc_kind(name: &str) -> Option<&'static str> {
         "md" | "markdown" => Some("markdown"),
         "html" | "htm" => Some("html"),
         "hwp" | "hwpx" => Some("hwp"),
+        "pdf" => Some("pdf"),
         _ if IMG_EXTS.contains(&e.as_str()) => Some("image"),
         _ if VID_EXTS.contains(&e.as_str()) => Some("video"),
         _ if TXT_EXTS.contains(&e.as_str()) => Some("text"),

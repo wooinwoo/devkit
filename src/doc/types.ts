@@ -4,7 +4,8 @@ export type DocKind =
   | "image"
   | "video"
   | "text"
-  | "hwp";
+  | "hwp"
+  | "pdf";
 
 /** 텍스트로 읽어 편집 가능한 종류인지 (이미지·영상은 바이너리라 제외) */
 export function isTextKind(k: DocKind): boolean {
@@ -55,6 +56,7 @@ export function kindOf(path: string): DocKind | null {
   if (ext === "md" || ext === "markdown") return "markdown";
   if (ext === "html" || ext === "htm") return "html";
   if (ext === "hwp" || ext === "hwpx") return "hwp";
+  if (ext === "pdf") return "pdf";
   if (IMAGE_EXTS.includes(ext)) return "image";
   if (VIDEO_EXTS.includes(ext)) return "video";
   if (TEXT_EXTS.includes(ext)) return "text";
@@ -63,7 +65,7 @@ export function kindOf(path: string): DocKind | null {
 
 /** 열기 다이얼로그·폴더 스캔에서 허용할 전체 확장자 */
 export const ALL_EXTS = [
-  "md", "markdown", "html", "htm", "hwp", "hwpx",
+  "md", "markdown", "html", "htm", "hwp", "hwpx", "pdf",
   ...IMAGE_EXTS, ...VIDEO_EXTS, ...TEXT_EXTS,
 ];
 
