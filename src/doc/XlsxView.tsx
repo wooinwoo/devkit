@@ -1,12 +1,44 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { readBinary } from "./fs";
 
-/** 엑셀 뷰어 — SheetJS 로 시트별 표 렌더 (데이터·표만, 서식·차트 제외) */
-export function XlsxView({ path }: { path: string }) {
-  const [sheets, setSheets] = useState<{ name: string; html: string }[] | null>(
-    null,
+const MAX_ROWS = 5000; // 뷰어 성능 상한
+
+interface Sheet {
+  name: string;
+  rows: string[][]; // 표시용 문자열 (raw:false)
+  nums: boolean[][]; // 셀이 숫자인지 (우측 정렬용)
+  cols: number; // 최대 열 수
+  truncated: boolean;
+}
+
+function buildSheet(name: string, ws: XLSX.WorkSheet): Sheet {
+  const disp = XLSX.utils.sheet_to_json<string[]>(ws, {
+    header: 1,
+    raw: false,
+    defval: "",
+    blankrows: true,
+  });
+  const rawRows = XLSX.utils.sheet_to_json<unknown[]>(ws, {
+    header: 1,
+    raw: true,
+    defval: "",
+    blankrows: true,
+  });
+  const truncated = disp.length > MAX_ROWS;
+  const rows = (truncated ? disp.slice(0, MAX_ROWS) : disp).map((r) =>
+    (r ?? []).map((c) => (c == null ? "" : String(c))),
   );
+  const nums = (truncated ? rawRows.slice(0, MAX_ROWS) : rawRows).map((r) =>
+    (r ?? []).map((c) => typeof c === "number"),
+  );
+  const cols = rows.reduce((m, r) => Math.max(m, r.length), 1);
+  return { name, rows, nums, cols, truncated };
+}
+
+/** 엑셀·CSV·TSV 뷰어 — SheetJS 로 시트별 표 렌더 (읽기 전용, 서식·차트 제외) */
+export function XlsxView({ path, zoom = 1 }: { path: string; zoom?: number }) {
+  const [sheets, setSheets] = useState<Sheet[] | null>(null);
   const [active, setActive] = useState(0);
   const [err, setErr] = useState<string | null>(null);
 
@@ -18,11 +50,15 @@ export function XlsxView({ path }: { path: string }) {
     (async () => {
       try {
         const bytes = await readBinary(path);
-        const wb = XLSX.read(bytes, { type: "array" });
-        const s = wb.SheetNames.map((n) => ({
-          name: n,
-          html: XLSX.utils.sheet_to_html(wb.Sheets[n], { editable: false }),
-        }));
+        const ext = path.split(".").pop()?.toLowerCase();
+        let wb: XLSX.WorkBook;
+        if (ext === "csv" || ext === "tsv") {
+          const text = new TextDecoder("utf-8").decode(bytes);
+          wb = XLSX.read(text, { type: "string", FS: ext === "tsv" ? "\t" : "," });
+        } else {
+          wb = XLSX.read(bytes, { type: "array" });
+        }
+        const s = wb.SheetNames.map((n) => buildSheet(n, wb.Sheets[n]));
         if (!cancelled) setSheets(s);
       } catch (e) {
         if (!cancelled) setErr((e as Error).message ?? String(e));
@@ -33,14 +69,23 @@ export function XlsxView({ path }: { path: string }) {
     };
   }, [path]);
 
+  const sheet = sheets?.[active];
+  const colLetters = useMemo(
+    () =>
+      sheet
+        ? Array.from({ length: sheet.cols }, (_, c) => XLSX.utils.encode_col(c))
+        : [],
+    [sheet],
+  );
+
   if (err) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center text-sm text-rose">
-        엑셀 열기 실패: {err}
+        열기 실패: {err}
       </div>
     );
   }
-  if (!sheets) {
+  if (!sheets || !sheet) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-faint">
         불러오는 중…
@@ -50,32 +95,64 @@ export function XlsxView({ path }: { path: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      {sheets.length > 1 && (
-        <div
-          role="tablist"
-          aria-label="시트"
-          className="flex gap-px overflow-x-auto border-b border-line-soft bg-bg-deep/40 px-2"
-        >
-          {sheets.map((s, i) => (
-            <button
-              key={s.name}
-              type="button"
-              role="tab"
-              aria-selected={active === i}
-              onClick={() => setActive(i)}
-              className={`shrink-0 px-3 py-1.5 font-mono text-xs transition-colors ${
-                active === i ? "text-fg" : "text-muted hover:text-fg"
-              }`}
-            >
-              {s.name}
-            </button>
-          ))}
+      <div className="xlsx-sheet min-h-0 flex-1 overflow-auto">
+        {/* zoom 은 스크롤 컨테이너 내부 표에만 적용 → 스크롤·고정헤더 정상 */}
+        <div style={{ zoom }}>
+          <table className="sheet-grid">
+            <thead>
+              <tr>
+                <th aria-label="모서리" />
+                {colLetters.map((letter) => (
+                  <th key={letter}>{letter}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sheet.rows.map((row, r) => (
+                // 행 순서 고정이라 인덱스 key 안전
+                // eslint-disable-next-line react/no-array-index-key
+                <tr key={r}>
+                  <th scope="row">{r + 1}</th>
+                  {colLetters.map((_, c) => (
+                    // eslint-disable-next-line react/no-array-index-key
+                    <td key={c} className={sheet.nums[r]?.[c] ? "num" : undefined}>
+                      {row[c] ?? ""}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {sheet.truncated && (
+            <p className="px-3 py-2 font-mono text-xs text-faint">
+              {MAX_ROWS.toLocaleString()}행까지만 표시했어요 (뷰어 성능 제한).
+            </p>
+          )}
         </div>
-      )}
-      <div className="xlsx-sheet min-h-0 flex-1 overflow-auto p-4">
-        {/* SheetJS 가 만든 표 HTML (로컬 파싱, 신뢰 소스) */}
-        {/* eslint-disable-next-line react/no-danger */}
-        <div dangerouslySetInnerHTML={{ __html: sheets[active]?.html ?? "" }} />
+      </div>
+
+      {/* 시트 탭 — 엑셀처럼 하단에 항상 표시 */}
+      <div
+        role="tablist"
+        aria-label="시트"
+        className="flex shrink-0 gap-px overflow-x-auto border-t border-line-soft bg-bg-deep/50 px-2"
+      >
+        {sheets.map((s, i) => (
+          <button
+            key={s.name}
+            type="button"
+            role="tab"
+            aria-selected={active === i}
+            onClick={() => setActive(i)}
+            className={`shrink-0 border-b-2 px-3.5 py-1.5 font-mono text-xs transition-colors ${
+              active === i
+                ? "border-accent text-fg"
+                : "border-transparent text-muted hover:text-fg"
+            }`}
+          >
+            {s.name}
+          </button>
+        ))}
       </div>
     </div>
   );

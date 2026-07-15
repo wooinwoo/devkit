@@ -27,6 +27,11 @@ function Shell() {
         unlisten = u;
       })
       .catch(() => {});
+    // 개발용: 브라우저에서 ?open=/samples/a.md,/samples/b.csv 로 뷰어 검증
+    if (import.meta.env.DEV) {
+      const q = new URLSearchParams(location.search).get("open");
+      if (q) void openPaths(q.split(",").filter(Boolean));
+    }
     return () => unlisten?.();
   }, [openPaths]);
 
@@ -66,10 +71,7 @@ function Shell() {
 
       <main className="relative flex min-w-0 flex-1 flex-col">
         {showChrome && <TabBar />}
-        <div
-          className="min-h-0 flex-1"
-          style={{ ["--editor-zoom" as string]: prefs.zoom }}
-        >
+        <div className="min-h-0 flex-1">
           <DocViewer />
         </div>
         {showChrome && <StatusBar />}

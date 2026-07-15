@@ -9,9 +9,8 @@ struct OpenedFile(Mutex<Option<String>>);
 const IMG_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
 const VID_EXTS: &[&str] = &["mp4", "webm", "ogv", "mov", "m4v"];
 const TXT_EXTS: &[&str] = &[
-    "txt", "text", "log", "json", "jsonc", "yml", "yaml", "toml", "csv", "tsv", "xml", "ini",
-    "conf", "env", "js", "ts", "jsx", "tsx", "css", "scss", "py", "rs", "go", "java", "c", "cpp",
-    "h", "sh", "sql",
+    "txt", "text", "log", "json", "jsonc", "yml", "yaml", "toml", "xml", "ini", "conf", "env", "js",
+    "ts", "jsx", "tsx", "css", "scss", "py", "rs", "go", "java", "c", "cpp", "h", "sh", "sql",
 ];
 
 fn ext_of(name: &str) -> String {
@@ -25,7 +24,7 @@ fn doc_kind(name: &str) -> Option<&'static str> {
         "html" | "htm" => Some("html"),
         "hwp" | "hwpx" => Some("hwp"),
         "pdf" => Some("pdf"),
-        "xlsx" | "xls" => Some("xlsx"),
+        "xlsx" | "xls" | "csv" | "tsv" => Some("xlsx"),
         "pptx" | "ppt" => Some("pptx"),
         _ if IMG_EXTS.contains(&e.as_str()) => Some("image"),
         _ if VID_EXTS.contains(&e.as_str()) => Some("video"),

@@ -1,12 +1,12 @@
-/* Milkdown Crepe 에디터 — devkit 종이+잉크 톤 오버라이드 + 줌 */
+/* Milkdown Crepe 에디터 — devkit 종이+잉크 톤 오버라이드 */
 .milkdown {
   background: transparent;
-  font-size: calc(16px * var(--editor-zoom, 1));
+  font-size: 16px;
   color: var(--color-text);
 }
 
 .milkdown .ProseMirror {
-  max-width: 46rem;
+  max-width: var(--doc-width, 46rem);
   margin-inline: auto;
   padding: 2.5rem 1.5rem 8rem;
   font-family: var(--font-sans);

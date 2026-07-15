@@ -3,7 +3,7 @@ import { usePrefs } from "../workspace/prefs";
 
 export function StatusBar() {
   const { activeDoc } = useDocs();
-  const { zoom, zoomReset } = usePrefs();
+  const { zoom, zoomIn, zoomOut, zoomReset } = usePrefs();
 
   const text = activeDoc?.content ?? "";
   const chars = text.length;
@@ -18,14 +18,33 @@ export function StatusBar() {
             {words}단어 · {chars}자
           </span>
         )}
-        <button
-          type="button"
-          onClick={zoomReset}
-          className="tabular-nums transition-colors hover:text-fg"
-          title="줌 초기화 (Ctrl+0)"
-        >
-          {Math.round(zoom * 100)}%
-        </button>
+        {/* 컨텐츠 줌 — Ctrl+휠 / Ctrl+± 와 동일 */}
+        <span className="flex items-center gap-1" title="컨텐츠 확대·축소 (Ctrl+휠 / Ctrl+±)">
+          <button
+            type="button"
+            onClick={zoomOut}
+            className="px-1 text-sm leading-none transition-colors hover:text-fg"
+            aria-label="축소"
+          >
+            −
+          </button>
+          <button
+            type="button"
+            onClick={zoomReset}
+            className="tabular-nums transition-colors hover:text-fg"
+            aria-label="줌 초기화"
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+          <button
+            type="button"
+            onClick={zoomIn}
+            className="px-1 text-sm leading-none transition-colors hover:text-fg"
+            aria-label="확대"
+          >
+            +
+          </button>
+        </span>
       </span>
     </div>
   );

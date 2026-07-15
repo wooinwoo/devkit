@@ -17,7 +17,7 @@ export function isTextKind(k: DocKind): boolean {
 const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
 const VIDEO_EXTS = ["mp4", "webm", "ogv", "mov", "m4v"];
 const TEXT_EXTS = [
-  "txt", "text", "log", "json", "jsonc", "yml", "yaml", "toml", "csv", "tsv",
+  "txt", "text", "log", "json", "jsonc", "yml", "yaml", "toml",
   "xml", "ini", "conf", "env", "js", "ts", "jsx", "tsx", "css", "scss",
   "py", "rs", "go", "java", "c", "cpp", "h", "sh", "sql",
 ];
@@ -59,7 +59,8 @@ export function kindOf(path: string): DocKind | null {
   if (ext === "html" || ext === "htm") return "html";
   if (ext === "hwp" || ext === "hwpx") return "hwp";
   if (ext === "pdf") return "pdf";
-  if (ext === "xlsx" || ext === "xls") return "xlsx";
+  if (ext === "xlsx" || ext === "xls" || ext === "csv" || ext === "tsv")
+    return "xlsx";
   if (ext === "pptx" || ext === "ppt") return "pptx";
   if (IMAGE_EXTS.includes(ext)) return "image";
   if (VIDEO_EXTS.includes(ext)) return "video";
@@ -70,7 +71,7 @@ export function kindOf(path: string): DocKind | null {
 /** 열기 다이얼로그·폴더 스캔에서 허용할 전체 확장자 */
 export const ALL_EXTS = [
   "md", "markdown", "html", "htm", "hwp", "hwpx", "pdf",
-  "xlsx", "xls", "pptx", "ppt",
+  "xlsx", "xls", "csv", "tsv", "pptx", "ppt",
   ...IMAGE_EXTS, ...VIDEO_EXTS, ...TEXT_EXTS,
 ];
 

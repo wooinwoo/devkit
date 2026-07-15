@@ -7,11 +7,14 @@ import {
   useState,
 } from "react";
 
+export type DocWidth = "narrow" | "normal" | "wide" | "full";
+
 export interface UiPrefs {
   sidebarCollapsed: boolean;
   sidebarWidth: number; // px
   sidebarTab: "files" | "outline";
-  zoom: number; // 0.8 ~ 1.8
+  zoom: number; // 0.8 ~ 2.4 (컨텐츠만)
+  docWidth: DocWidth; // 마크다운 본문 좌우 폭
   focus: boolean; // 집중 모드 (크롬 숨김)
 }
 
@@ -20,14 +23,23 @@ const DEFAULTS: UiPrefs = {
   sidebarWidth: 260,
   sidebarTab: "files",
   zoom: 1,
+  docWidth: "normal",
   focus: false,
+};
+
+/** 마크다운 본문 max-width (CSS 값). full 은 제한 없음 */
+export const DOC_WIDTH_CSS: Record<DocWidth, string> = {
+  narrow: "34rem",
+  normal: "46rem",
+  wide: "62rem",
+  full: "100%",
 };
 
 const KEY = "devkit.prefs.v1";
 export const SIDEBAR_MIN = 200;
 export const SIDEBAR_MAX = 460;
-export const ZOOM_MIN = 0.8;
-export const ZOOM_MAX = 1.8;
+export const ZOOM_MIN = 0.5;
+export const ZOOM_MAX = 2.4;
 export const ZOOM_STEP = 0.1;
 
 function load(): UiPrefs {
