@@ -116,8 +116,9 @@ export function Sidebar() {
         {sidebarTab === "files" ? <FileTree /> : <Outline />}
       </div>
 
-      <footer className="border-t border-line-soft px-4 py-2.5">
+      <footer className="flex items-center justify-between border-t border-line-soft px-4 py-2.5">
         <p className="font-mono text-[10px] text-faint">by wooinwoo</p>
+        <p className="font-mono text-[10px] text-faint">v{__APP_VERSION__}</p>
       </footer>
 
       {/* 리사이즈 핸들 */}
