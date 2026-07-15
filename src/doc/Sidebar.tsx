@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { FileTree } from "./FileTree";
 import { Outline } from "./Outline";
 import { useDocs } from "./store";
@@ -12,6 +13,15 @@ export function Sidebar() {
   const { sidebarWidth, sidebarTab, set, toggleSidebar } = usePrefs();
   const { openFilesDialog, openFolderDialog, folder, refreshFolder } =
     useDocs();
+
+  // 실제 실행 중인 바이너리 버전 (빌드타임 값과 어긋날 수 있어 런타임 조회)
+  const [version, setVersion] = useState(__APP_VERSION__);
+  useEffect(() => {
+    import("@tauri-apps/api/app")
+      .then((m) => m.getVersion())
+      .then(setVersion)
+      .catch(() => {});
+  }, []);
 
   function startResize(e: React.PointerEvent) {
     e.preventDefault();
@@ -118,7 +128,7 @@ export function Sidebar() {
 
       <footer className="flex items-center justify-between border-t border-line-soft px-4 py-2.5">
         <p className="font-mono text-[10px] text-faint">by wooinwoo</p>
-        <p className="font-mono text-[10px] text-faint">v{__APP_VERSION__}</p>
+        <p className="font-mono text-[10px] text-muted">v{version}</p>
       </footer>
 
       {/* 리사이즈 핸들 */}

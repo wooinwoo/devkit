@@ -1,5 +1,4 @@
 import { Suspense, lazy, useEffect, useRef } from "react";
-import type { Crepe } from "@milkdown/crepe";
 import { EmptyState } from "./EmptyState";
 import { HtmlView } from "./HtmlView";
 import { ImageView, VideoView } from "./MediaView";
@@ -94,11 +93,11 @@ export function DocViewer() {
     edit,
     setBaseline,
     save,
+    registerEditor,
     htmlAllowScripts,
     toggleScripts,
   } = useDocs();
   const { zoom, docWidth, zoomIn, zoomOut } = usePrefs();
-  const crepeRef = useRef<Crepe | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
   // Ctrl + 마우스휠 = 컨텐츠 확대/축소
@@ -195,7 +194,7 @@ export function DocViewer() {
           defaultValue={doc.content}
           onChange={(md) => edit(doc.path, md)}
           onReady={(c) => {
-            crepeRef.current = c;
+            registerEditor(doc.path, () => c.getMarkdown());
             requestAnimationFrame(() => {
               try {
                 setBaseline(doc.path, c.getMarkdown());
@@ -240,13 +239,7 @@ export function DocViewer() {
           {canEdit && (
             <button
               type="button"
-              onClick={() => {
-                const latest =
-                  doc.kind === "markdown" && crepeRef.current
-                    ? crepeRef.current.getMarkdown()
-                    : undefined;
-                void save(doc.path, latest);
-              }}
+              onClick={() => void save(doc.path)}
               disabled={!dirty}
               className="rounded-full border border-line-strong px-3.5 py-1 font-mono text-xs font-semibold text-fg transition-colors enabled:hover:border-fg disabled:opacity-35"
             >

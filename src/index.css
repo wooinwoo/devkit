@@ -42,20 +42,6 @@ body {
   outline-offset: 2px;
 }
 
-@keyframes caret-blink {
-  0%,
-  55% {
-    opacity: 1;
-  }
-  56%,
-  100% {
-    opacity: 0;
-  }
-}
-.caret {
-  animation: caret-blink 1.1s steps(1) infinite;
-}
-
 /* 엑셀·CSV 스프레드시트 그리드 (열 문자 A·B·C / 행 번호, 고정 헤더) */
 .sheet-grid {
   border-collapse: separate;

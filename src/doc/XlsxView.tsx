@@ -4,6 +4,26 @@ import { readBinary } from "./fs";
 
 const MAX_ROWS = 5000; // 뷰어 성능 상한
 
+/** CSV/TSV 텍스트 디코딩 — UTF-8 시도 후 깨짐(U+FFFD) 많으면 EUC-KR(CP949) 폴백.
+ *  관공서·윈도우 엑셀이 저장한 한글 CSV 는 대개 CP949 라 그냥 UTF-8 로 읽으면 전부 깨진다. */
+function decodeCsv(bytes: Uint8Array): string {
+  // BOM 이면 UTF-8 확정
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return new TextDecoder("utf-8").decode(bytes);
+  }
+  const utf8 = new TextDecoder("utf-8").decode(bytes);
+  const bad = (utf8.match(/�/g)?.length ?? 0) / Math.max(1, utf8.length);
+  if (bad < 0.002) return utf8; // 치환문자 거의 없으면 UTF-8
+  try {
+    const euc = new TextDecoder("euc-kr").decode(bytes);
+    const eucBad = (euc.match(/�/g)?.length ?? 0) / Math.max(1, euc.length);
+    // EUC-KR 이 덜 깨지면 그쪽 채택
+    return eucBad < bad ? euc : utf8;
+  } catch {
+    return utf8;
+  }
+}
+
 interface Sheet {
   name: string;
   rows: string[][]; // 표시용 문자열 (raw:false)
@@ -53,7 +73,7 @@ export function XlsxView({ path, zoom = 1 }: { path: string; zoom?: number }) {
         const ext = path.split(".").pop()?.toLowerCase();
         let wb: XLSX.WorkBook;
         if (ext === "csv" || ext === "tsv") {
-          const text = new TextDecoder("utf-8").decode(bytes);
+          const text = decodeCsv(bytes);
           wb = XLSX.read(text, { type: "string", FS: ext === "tsv" ? "\t" : "," });
         } else {
           wb = XLSX.read(bytes, { type: "array" });

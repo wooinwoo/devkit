@@ -16,12 +16,14 @@ export function PdfView({ path, zoom = 1 }: { path: string; zoom?: number }) {
 
   useEffect(() => {
     let cancelled = false;
+    let task: ReturnType<typeof pdfjs.getDocument> | null = null;
     setLoading(true);
     setErr(null);
     (async () => {
       try {
         const bytes = await readBinary(path);
-        const pdf = await pdfjs.getDocument({ data: bytes }).promise;
+        task = pdfjs.getDocument({ data: bytes });
+        const pdf = await task.promise;
         const container = containerRef.current;
         if (cancelled || !container) return;
         container.replaceChildren();
@@ -72,6 +74,8 @@ export function PdfView({ path, zoom = 1 }: { path: string; zoom?: number }) {
     })();
     return () => {
       cancelled = true;
+      // 워커·힙 자원 해제 (상주 앱 누수 방지)
+      task?.destroy();
     };
   }, [path]);
 

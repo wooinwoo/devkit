@@ -151,6 +151,8 @@ pub fn run() {
                 let _ = app.emit("opened-file", path);
             }
         }));
+        // 창 크기·위치 기억 (종료 시 저장, 실행 시 복원)
+        builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
     }
 
     builder

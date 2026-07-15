@@ -1,5 +1,6 @@
 import { type DocKind, type TreeNode, kindOf } from "./types";
 import { useDocs } from "./store";
+import { usePrefs } from "../workspace/prefs";
 
 const BADGE: Record<DocKind, string> = {
   markdown: "MD",
@@ -33,12 +34,22 @@ function extLabel(name: string): string {
 
 function Node({ node }: { node: TreeNode }) {
   const { openPaths, activePath } = useDocs();
+  const { collapsedDirs, toggleDir } = usePrefs();
 
   if (node.isDir) {
     const empty = !node.children || node.children.length === 0;
+    // 접힘 상태는 prefs 에 저장 → 저장/재스캔으로 트리가 교체돼도 유지
+    const open = !empty && !collapsedDirs.includes(node.path);
     return (
       <li>
-        <details open={!empty}>
+        <details
+          open={open}
+          onToggle={(e) => {
+            const isOpen = e.currentTarget.open;
+            if (isOpen === open) return; // 상태 일치면 무시 (재렌더 루프 방지)
+            toggleDir(node.path, !isOpen);
+          }}
+        >
           <summary className="cursor-pointer list-none py-1 font-mono text-xs text-muted marker:content-none hover:text-fg">
             <span className="text-faint">▸ </span>
             {node.name}

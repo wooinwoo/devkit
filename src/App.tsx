@@ -9,7 +9,15 @@ import { DocProvider, useDocs } from "./doc/store";
 import { WorkspaceProvider, usePrefs } from "./workspace/prefs";
 
 function Shell() {
-  const { openPaths, save, activeDoc } = useDocs();
+  const {
+    openPaths,
+    save,
+    activeDoc,
+    closeActive,
+    selectNext,
+    selectPrev,
+    selectByIndex,
+  } = useDocs();
   const prefs = usePrefs();
 
   // OS 파일 연결: cold start argv + warm start emit
@@ -54,6 +62,16 @@ function Shell() {
       } else if (mod && e.key.toLowerCase() === "b") {
         e.preventDefault();
         prefs.toggleSidebar();
+      } else if (mod && e.key.toLowerCase() === "w") {
+        e.preventDefault();
+        closeActive();
+      } else if (mod && e.key === "Tab") {
+        e.preventDefault();
+        if (e.shiftKey) selectPrev();
+        else selectNext();
+      } else if (mod && e.key >= "1" && e.key <= "9") {
+        e.preventDefault();
+        selectByIndex(Number(e.key) - 1);
       } else if (e.key === "F8") {
         e.preventDefault();
         prefs.toggleFocus();
@@ -61,7 +79,15 @@ function Shell() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [prefs, activeDoc, save]);
+  }, [
+    prefs,
+    activeDoc,
+    save,
+    closeActive,
+    selectNext,
+    selectPrev,
+    selectByIndex,
+  ]);
 
   const showChrome = !prefs.focus;
 

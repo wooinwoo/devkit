@@ -16,6 +16,7 @@ export interface UiPrefs {
   zoom: number; // 0.8 ~ 2.4 (컨텐츠만)
   docWidth: DocWidth; // 마크다운 본문 좌우 폭
   focus: boolean; // 집중 모드 (크롬 숨김)
+  collapsedDirs: string[]; // 파일트리에서 접어둔 폴더 경로 (재스캔에도 유지)
 }
 
 const DEFAULTS: UiPrefs = {
@@ -25,6 +26,7 @@ const DEFAULTS: UiPrefs = {
   zoom: 1,
   docWidth: "normal",
   focus: false,
+  collapsedDirs: [],
 };
 
 /** 마크다운 본문 max-width (CSS 값). full 은 제한 없음 */
@@ -59,6 +61,7 @@ interface PrefsCtx extends UiPrefs {
   zoomIn: () => void;
   zoomOut: () => void;
   zoomReset: () => void;
+  toggleDir: (path: string, collapsed: boolean) => void;
 }
 
 const Ctx = createContext<PrefsCtx | null>(null);
@@ -95,6 +98,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       zoomOut: () =>
         setPrefs((p) => ({ ...p, zoom: clamp(p.zoom - ZOOM_STEP, ZOOM_MIN, ZOOM_MAX) })),
       zoomReset: () => setPrefs((p) => ({ ...p, zoom: 1 })),
+      toggleDir: (path, collapsed) =>
+        setPrefs((p) => {
+          const s = new Set(p.collapsedDirs);
+          if (collapsed) s.add(path);
+          else s.delete(path);
+          return { ...p, collapsedDirs: [...s] };
+        }),
     }),
     [prefs, set],
   );

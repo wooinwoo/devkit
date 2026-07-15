@@ -13,7 +13,14 @@ function Inner({
   onChange: (md: string) => void;
 }) {
   useEditor((root) => {
-    const crepe = new Crepe({ root, defaultValue });
+    const crepe = new Crepe({
+      root,
+      defaultValue,
+      // 가상 커서(prosemirror-virtual-cursor)는 네이티브 캐럿을 caret-color:transparent로
+      // 숨기고 JS로 그리는데, 컨텐츠 zoom 과 겹치면 좌표가 어긋나 커서가 사라진다.
+      // → 가상 커서 끄고 네이티브 캐럿 사용 (zoom 반영됨)
+      featureConfigs: { [Crepe.Feature.Cursor]: { virtual: false } },
+    });
     // 매 키 입력마다 store 갱신·리렌더하면 렉 → 디바운스
     let timer: ReturnType<typeof setTimeout> | undefined;
     crepe.on((listener) => {
@@ -23,6 +30,10 @@ function Inner({
       });
     });
     onReady(crepe);
+    // 문서 열자마자 캐럿이 보이도록 포커스 (생성 완료 후, DOM 기반이라 ctx 불필요)
+    setTimeout(() => {
+      (root.querySelector(".ProseMirror") as HTMLElement | null)?.focus();
+    }, 80);
     return crepe;
   }, []);
   return <Milkdown />;

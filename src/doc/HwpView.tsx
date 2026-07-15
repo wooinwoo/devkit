@@ -26,6 +26,8 @@ export function HwpView({ path }: { path: string }) {
         const n = doc.pageCount();
         const svgs: string[] = [];
         for (let i = 0; i < n; i++) svgs.push(doc.renderPageSvg(i));
+        // SVG 문자열만 보관하고 WASM 힙 객체는 즉시 해제 (누수 방지)
+        doc.free();
         if (!cancelled) setPages(svgs);
       } catch (e) {
         if (!cancelled) setErr((e as Error).message ?? String(e));

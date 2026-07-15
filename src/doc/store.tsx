@@ -146,10 +146,16 @@ interface DocCtx extends ViewerState {
   save: (path: string, content?: string) => Promise<void>;
   select: (path: string) => void;
   close: (path: string) => void;
+  closeActive: () => void;
+  selectNext: () => void;
+  selectPrev: () => void;
+  selectByIndex: (i: number) => void;
   setViewMode: (m: ViewMode) => void;
   toggleScripts: () => void;
   recentFiles: string[];
   refreshFolder: () => Promise<void>;
+  // 마크다운 에디터가 최신값 getter 를 등록 → 저장 시 디바운스 유실 방지
+  registerEditor: (path: string, getMarkdown: () => string) => void;
 }
 
 const Ctx = createContext<DocCtx | null>(null);
@@ -231,20 +237,80 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
     dispatch({ t: "OPEN_FOLDER", root: folderRoot, tree });
   }, [folderRoot]);
 
+  // 활성 마크다운 에디터의 최신값 getter (디바운스 미반영분까지 flush)
+  const editorFlushRef = useRef<{ path: string; get: () => string } | null>(
+    null,
+  );
+  const registerEditor = useCallback(
+    (path: string, get: () => string) => {
+      editorFlushRef.current = { path, get };
+    },
+    [],
+  );
+
   const save = useCallback(
     async (path: string, contentOverride?: string) => {
       const doc = state.openDocs.find((d) => d.path === path);
       if (!doc) return;
-      const content = contentOverride ?? doc.content;
+      let content = contentOverride ?? doc.content;
+      // 마크다운은 에디터 실시간값을 우선 (Ctrl+S 가 디바운스 옛 값을 쓰는 유실 방지)
+      const fl = editorFlushRef.current;
+      if (contentOverride === undefined && doc.kind === "markdown" && fl?.path === path) {
+        try {
+          content = fl.get();
+        } catch {
+          /* ignore */
+        }
+      }
       await writeDoc(path, content);
-      // 디바운스로 미반영된 최신 내용을 저장하는 경우 상태도 동기화
-      if (contentOverride !== undefined && contentOverride !== doc.content) {
+      // 미반영된 최신 내용을 저장한 경우 상태도 동기화
+      if (content !== doc.content) {
         dispatch({ t: "EDIT", path, content });
       }
       dispatch({ t: "MARK_SAVED", path });
     },
     [state.openDocs],
   );
+
+  // 미저장 변경이 있으면 닫기 전 확인
+  const close = useCallback(
+    (path: string) => {
+      const doc = state.openDocs.find((d) => d.path === path);
+      if (doc && doc.content !== doc.saved) {
+        const ok = window.confirm(
+          `저장하지 않은 변경이 있어요.\n"${doc.name}" 을(를) 저장하지 않고 닫을까요?`,
+        );
+        if (!ok) return;
+      }
+      dispatch({ t: "CLOSE", path });
+    },
+    [state.openDocs],
+  );
+
+  const closeActive = useCallback(() => {
+    if (state.activePath) close(state.activePath);
+  }, [state.activePath, close]);
+
+  const selectByIndex = useCallback(
+    (i: number) => {
+      const d = state.openDocs[i];
+      if (d) dispatch({ t: "SELECT", path: d.path });
+    },
+    [state.openDocs],
+  );
+
+  const selectRelative = useCallback(
+    (delta: number) => {
+      const n = state.openDocs.length;
+      if (n === 0) return;
+      const cur = state.openDocs.findIndex((d) => d.path === state.activePath);
+      const next = ((cur < 0 ? 0 : cur) + delta + n) % n;
+      dispatch({ t: "SELECT", path: state.openDocs[next].path });
+    },
+    [state.openDocs, state.activePath],
+  );
+  const selectNext = useCallback(() => selectRelative(1), [selectRelative]);
+  const selectPrev = useCallback(() => selectRelative(-1), [selectRelative]);
 
   const value = useMemo<DocCtx>(
     () => ({
@@ -259,11 +325,16 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
         dispatch({ t: "BASELINE", path, content }),
       save,
       select: (path) => dispatch({ t: "SELECT", path }),
-      close: (path) => dispatch({ t: "CLOSE", path }),
+      close,
+      closeActive,
+      selectNext,
+      selectPrev,
+      selectByIndex,
       setViewMode: (mode) => dispatch({ t: "VIEW_MODE", mode }),
       toggleScripts: () => dispatch({ t: "TOGGLE_SCRIPTS" }),
       recentFiles,
       refreshFolder,
+      registerEditor,
     }),
     [
       state,
@@ -271,8 +342,14 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
       openFolderDialog,
       openPaths,
       save,
+      close,
+      closeActive,
+      selectNext,
+      selectPrev,
+      selectByIndex,
       recentFiles,
       refreshFolder,
+      registerEditor,
     ],
   );
 
