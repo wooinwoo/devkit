@@ -26,23 +26,49 @@ function KindBadge({ kind }: { kind?: DocKind }) {
   );
 }
 
+function extLabel(name: string): string {
+  const i = name.lastIndexOf(".");
+  return i > 0 ? name.slice(i + 1).toUpperCase().slice(0, 4) : "FILE";
+}
+
 function Node({ node }: { node: TreeNode }) {
   const { openPaths, activePath } = useDocs();
 
   if (node.isDir) {
+    const empty = !node.children || node.children.length === 0;
     return (
       <li>
-        <details open>
+        <details open={!empty}>
           <summary className="cursor-pointer list-none py-1 font-mono text-xs text-muted marker:content-none hover:text-fg">
             <span className="text-faint">▸ </span>
             {node.name}
+            {empty && <span className="ml-1 text-faint">· 빈 폴더</span>}
           </summary>
-          <ul className="ml-3 border-l border-line-soft pl-1.5">
-            {node.children?.map((c) => (
-              <Node key={c.path} node={c} />
-            ))}
-          </ul>
+          {!empty && (
+            <ul className="ml-3 border-l border-line-soft pl-1.5">
+              {node.children?.map((c) => (
+                <Node key={c.path} node={c} />
+              ))}
+            </ul>
+          )}
         </details>
+      </li>
+    );
+  }
+
+  // 못 여는 형식 = 회색으로 표시만 (클릭 불가)
+  if (!node.kind) {
+    return (
+      <li>
+        <span
+          title="devkit에서 열 수 없는 형식이에요"
+          className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[13px] text-faint"
+        >
+          <span className="shrink-0 rounded bg-fg/5 px-1 py-px font-mono text-[9px] font-semibold text-faint">
+            {extLabel(node.name)}
+          </span>
+          <span className="truncate">{node.name}</span>
+        </span>
       </li>
     );
   }
@@ -73,9 +99,7 @@ export function FileTree() {
   if (folder) {
     if (folder.tree.length === 0) {
       return (
-        <p className="px-2 py-3 text-xs text-faint">
-          이 폴더에 .md / .html 문서가 없어요.
-        </p>
+        <p className="px-2 py-3 text-xs text-faint">이 폴더는 비어 있어요.</p>
       );
     }
     return (

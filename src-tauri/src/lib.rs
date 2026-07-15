@@ -60,9 +60,11 @@ struct TreeNode {
 
 const IGNORE_DIRS: &[&str] = &["node_modules", ".git", ".next", "dist", "target", ".vscode"];
 
-/// 폴더를 재귀 순회해 md/html 만 트리로 반환 (scope 무관, Rust에서 직접).
+/// 폴더를 재귀 순회해 실제 폴더 구조 그대로 트리 반환 (파일탐색기처럼 전부 표시).
+/// 문서 형식은 kind 부여(열림), 그 외는 kind 없음(회색 표시만).
+/// node_modules 등 무거운/빌드 폴더만 제외. scope 무관, Rust std::fs 로 직접.
 fn walk(dir: &Path, depth: u32) -> Vec<TreeNode> {
-    if depth > 6 {
+    if depth > 8 {
         return vec![];
     }
     let mut dirs: Vec<TreeNode> = vec![];
@@ -73,31 +75,30 @@ fn walk(dir: &Path, depth: u32) -> Vec<TreeNode> {
     };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') {
-            continue;
-        }
         let path = entry.path();
         let is_dir = path.is_dir();
         if is_dir {
+            // 무거운/빌드 폴더만 제외, 나머지(숨김 포함)는 전부 표시
             if IGNORE_DIRS.contains(&name.as_str()) {
                 continue;
             }
             let children = walk(&path, depth + 1);
-            if !children.is_empty() {
-                dirs.push(TreeNode {
-                    name,
-                    path: path.to_string_lossy().to_string(),
-                    is_dir: true,
-                    kind: None,
-                    children: Some(children),
-                });
-            }
-        } else if let Some(kind) = doc_kind(&name) {
+            // 빈 폴더도 실제 폴더처럼 표시
+            dirs.push(TreeNode {
+                name,
+                path: path.to_string_lossy().to_string(),
+                is_dir: true,
+                kind: None,
+                children: Some(children),
+            });
+        } else {
+            // 모든 파일 표시 — 문서면 kind, 아니면 None(못 여는 파일=회색)
+            let kind = doc_kind(&name).map(|k| k.to_string());
             files.push(TreeNode {
                 name,
                 path: path.to_string_lossy().to_string(),
                 is_dir: false,
-                kind: Some(kind.to_string()),
+                kind,
                 children: None,
             });
         }
