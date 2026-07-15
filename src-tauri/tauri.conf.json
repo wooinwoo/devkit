@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "devkit",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "identifier": "com.wooinwoo.devkit",
   "build": {
     "frontendDist": "../dist",
@@ -29,6 +29,14 @@
       }
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/wooinwoo/devkit/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEMwQjczOTA4NkJEMUE1MkMKUldRc3BkRnJDRG0zd0YxdlloUEttNVdSUWxNRFlBYkRJb0tLYXI5Q2N3NDk5K3U4amRiUWNKelUK"
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis", "app", "dmg", "deb", "rpm", "appimage"],
@@ -49,6 +57,24 @@
         "ext": ["hwp", "hwpx"],
         "name": "HWP Document",
         "description": "한글 문서",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["docx"],
+        "name": "Word Document",
+        "description": "Word 문서",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["pdf"],
+        "name": "PDF Document",
+        "description": "PDF 문서",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["xlsx", "csv"],
+        "name": "Spreadsheet",
+        "description": "표 문서",
         "role": "Viewer"
       }
     ],

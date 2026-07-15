@@ -50,15 +50,20 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 자동 업데이트 서명 — TAURI_SIGNING_PRIVATE_KEY 시크릿 등록 후
+          # tauri.conf.json 의 bundle.createUpdaterArtifacts 를 true 로 켜면 활성화된다.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "devkit ${{ github.ref_name }}"
           releaseBody: |
-            로컬 개발자 유틸리티 데스크톱 앱. Cron 표현식 도구 + HTML 라이브 뷰어.
+            로컬 문서 뷰어·에디터 데스크톱 앱.
+            마크다운(WYSIWYG)·Word(docx)·PDF·엑셀/CSV·PPT·한글(hwp)·이미지·영상·HTML·텍스트를 한 앱에서.
 
             ## 설치
-            - **Windows**: `devkit_*_x64-setup.exe` (NSIS 인스톨러) 또는 `.msi`
-            - **macOS**: `devkit_*.dmg` (서명 안 됨 — 우클릭 열기)
+            - **Windows**: `devkit_*_x64-setup.exe` (NSIS 인스톨러)
+            - **macOS**: `devkit_*.dmg` (서명 안 됨, 우클릭 열기)
             - **Linux**: `.AppImage` / `.deb` / `.rpm`
 
             Tauri 2 · React 19 · 오프라인 동작.

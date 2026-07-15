@@ -4,13 +4,16 @@ import { DocViewer } from "./doc/DocViewer";
 import { Sidebar } from "./doc/Sidebar";
 import { StatusBar } from "./doc/StatusBar";
 import { TabBar } from "./doc/TabBar";
+import { UpdateBanner } from "./doc/UpdateBanner";
 import { startupFile } from "./doc/fs";
+import { kindOf } from "./doc/types";
 import { DocProvider, useDocs } from "./doc/store";
 import { WorkspaceProvider, usePrefs } from "./workspace/prefs";
 
 function Shell() {
   const {
     openPaths,
+    openFolderRoot,
     save,
     activeDoc,
     closeActive,
@@ -19,6 +22,27 @@ function Shell() {
     selectByIndex,
   } = useDocs();
   const prefs = usePrefs();
+
+  // 창에 파일·폴더 드래그앤드롭 → 열기
+  useEffect(() => {
+    let un: (() => void) | undefined;
+    import("@tauri-apps/api/webview")
+      .then(({ getCurrentWebview }) =>
+        getCurrentWebview().onDragDropEvent((e) => {
+          if (e.payload.type !== "drop") return;
+          const paths = e.payload.paths;
+          const files = paths.filter((p) => kindOf(p));
+          if (files.length) void openPaths(files);
+          // 열 수 있는 파일이 없으면 첫 경로를 폴더로 시도
+          else if (paths[0]) void openFolderRoot(paths[0]).catch(() => {});
+        }),
+      )
+      .then((u) => {
+        un = u;
+      })
+      .catch(() => {});
+    return () => un?.();
+  }, [openPaths, openFolderRoot]);
 
   // OS 파일 연결: cold start argv + warm start emit
   useEffect(() => {
@@ -96,6 +120,7 @@ function Shell() {
       {showChrome && !prefs.sidebarCollapsed && <Sidebar />}
 
       <main className="relative flex min-w-0 flex-1 flex-col">
+        {showChrome && <UpdateBanner />}
         {showChrome && <TabBar />}
         <div className="min-h-0 flex-1">
           <DocViewer />

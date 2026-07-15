@@ -26,6 +26,9 @@ const XlsxView = lazy(() =>
 const PptxView = lazy(() =>
   import("./PptxView").then((m) => ({ default: m.PptxView })),
 );
+const DocxView = lazy(() =>
+  import("./DocxView").then((m) => ({ default: m.DocxView })),
+);
 
 function Segmented() {
   const { viewMode, setViewMode } = useDocs();
@@ -180,6 +183,12 @@ export function DocViewer() {
     flow = (
       <div className="min-h-0 flex-1">
         <PptxView path={doc.path} />
+      </div>
+    );
+  } else if (doc.kind === "docx") {
+    flow = (
+      <div className="min-h-0 flex-1">
+        <DocxView path={doc.path} />
       </div>
     );
   } else if (doc.kind === "text") {

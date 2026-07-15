@@ -140,6 +140,7 @@ interface DocCtx extends ViewerState {
   activeDoc: OpenDoc | null;
   openFilesDialog: () => Promise<void>;
   openFolderDialog: () => Promise<void>;
+  openFolderRoot: (root: string) => Promise<void>;
   openPaths: (paths: string[]) => Promise<void>;
   edit: (path: string, content: string) => void;
   setBaseline: (path: string, content: string) => void;
@@ -161,6 +162,7 @@ interface DocCtx extends ViewerState {
 const Ctx = createContext<DocCtx | null>(null);
 
 const RECENT_KEY = "devkit.recent.v1";
+const SESSION_KEY = "devkit.session.v1";
 
 export function DocProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initial);
@@ -217,9 +219,8 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
   const unwatchRef = useRef<(() => void) | null>(null);
   useEffect(() => () => unwatchRef.current?.(), []);
 
-  const openFolderDialog = useCallback(async () => {
-    const root = await pickFolder();
-    if (!root) return;
+  // 특정 폴더 경로 열기 (다이얼로그·세션복원·DnD 공용)
+  const openFolderRoot = useCallback(async (root: string) => {
     const tree = await listDocs(root);
     dispatch({ t: "OPEN_FOLDER", root, tree });
     // 폴더 자동 동기화: 변경 시 재스캔
@@ -229,6 +230,53 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
       dispatch({ t: "OPEN_FOLDER", root, tree: t });
     });
   }, []);
+
+  const openFolderDialog = useCallback(async () => {
+    const root = await pickFolder();
+    if (root) await openFolderRoot(root);
+  }, [openFolderRoot]);
+
+  // 세션 복원 — 지난번 폴더·열린 문서·활성 탭 (최초 1회)
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    (async () => {
+      try {
+        const raw = localStorage.getItem(SESSION_KEY);
+        if (!raw) return;
+        const s = JSON.parse(raw) as {
+          folderRoot?: string;
+          openPaths?: string[];
+          activePath?: string;
+        };
+        if (s.folderRoot) await openFolderRoot(s.folderRoot).catch(() => {});
+        if (s.openPaths?.length) {
+          await openPaths(s.openPaths);
+          if (s.activePath) dispatch({ t: "SELECT", path: s.activePath });
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [openFolderRoot, openPaths]);
+
+  // 세션 저장 — 폴더·열린 문서·활성 탭이 바뀔 때마다
+  useEffect(() => {
+    if (!restoredRef.current) return; // 복원 완료 전엔 저장 안 함
+    try {
+      localStorage.setItem(
+        SESSION_KEY,
+        JSON.stringify({
+          folderRoot: state.folder?.root,
+          openPaths: state.openDocs.map((d) => d.path),
+          activePath: state.activePath,
+        }),
+      );
+    } catch {
+      /* ignore */
+    }
+  }, [state.folder?.root, state.openDocs, state.activePath]);
 
   const folderRoot = state.folder?.root;
   const refreshFolder = useCallback(async () => {
@@ -319,6 +367,7 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
         state.openDocs.find((d) => d.path === state.activePath) ?? null,
       openFilesDialog,
       openFolderDialog,
+      openFolderRoot,
       openPaths,
       edit: (path, content) => dispatch({ t: "EDIT", path, content }),
       setBaseline: (path, content) =>
@@ -340,6 +389,7 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
       state,
       openFilesDialog,
       openFolderDialog,
+      openFolderRoot,
       openPaths,
       save,
       close,

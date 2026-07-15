@@ -23,6 +23,7 @@ fn doc_kind(name: &str) -> Option<&'static str> {
         "md" | "markdown" => Some("markdown"),
         "html" | "htm" => Some("html"),
         "hwp" | "hwpx" => Some("hwp"),
+        "docx" => Some("docx"),
         "pdf" => Some("pdf"),
         "xlsx" | "xls" | "csv" | "tsv" => Some("xlsx"),
         "pptx" | "ppt" => Some("pptx"),
@@ -153,6 +154,9 @@ pub fn run() {
         }));
         // 창 크기·위치 기억 (종료 시 저장, 실행 시 복원)
         builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
+        // 자동 업데이트 (GitHub Releases latest.json) + 재시작
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+        builder = builder.plugin(tauri_plugin_process::init());
     }
 
     builder

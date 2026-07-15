@@ -12,6 +12,7 @@ const BADGE: Record<DocKind, string> = {
   pdf: "PDF",
   xlsx: "XLS",
   pptx: "PPT",
+  docx: "DOCX",
 };
 
 function KindBadge({ kind }: { kind?: DocKind }) {
