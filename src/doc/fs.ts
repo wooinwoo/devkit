@@ -56,6 +56,42 @@ export function writeDoc(path: string, content: string): Promise<void> {
   return invoke("save_file", { path, content });
 }
 
+/** 바이너리 저장 (이미지 붙여넣기 등) */
+export function writeBinary(path: string, bytes: Uint8Array): Promise<void> {
+  return invoke("write_binary", { path, bytes: Array.from(bytes) });
+}
+
+// 파일 관리 (Rust 커맨드) — 브라우저에선 no-op/throw
+export const renamePath = (from: string, to: string): Promise<void> =>
+  invoke("rename_path", { from, to });
+export const createFile = (path: string): Promise<void> =>
+  invoke("create_file", { path });
+export const createDir = (path: string): Promise<void> =>
+  invoke("create_dir", { path });
+export const deletePath = (path: string): Promise<void> =>
+  invoke("delete_path", { path });
+
+/** OS 파일 탐색기에서 항목 보기 */
+export async function revealInDir(path: string): Promise<void> {
+  const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
+  await revealItemInDir(path);
+}
+/** OS 기본 앱으로 열기 (devkit 이 못 여는 형식용) */
+export async function openWithDefault(path: string): Promise<void> {
+  const { openPath } = await import("@tauri-apps/plugin-opener");
+  await openPath(path);
+}
+
+/** 경로의 부모 디렉터리 */
+export function dirOf(path: string): string {
+  const i = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  return i >= 0 ? path.slice(0, i) : path;
+}
+/** 경로 구분자 (플랫폼) */
+export function sep(path: string): string {
+  return path.includes("\\") ? "\\" : "/";
+}
+
 /** 폴더 재귀 순회 → md/html 트리 (Rust 커맨드) */
 export function listDocs(root: string): Promise<TreeNode[]> {
   return invoke<TreeNode[]>("list_docs", { root });

@@ -25,6 +25,7 @@ import {
   isTextKind,
   kindOf,
 } from "./types";
+import { usePrefs } from "../workspace/prefs";
 
 type Action =
   | { t: "OPEN_FOLDER"; root: string; tree: TreeNode[] }
@@ -166,6 +167,7 @@ const SESSION_KEY = "devkit.session.v1";
 
 export function DocProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initial);
+  const autosaveOn = usePrefs().autosave;
 
   const [recentFiles, setRecentFiles] = useState<string[]>(() => {
     try {
@@ -359,6 +361,19 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
   );
   const selectNext = useCallback(() => selectRelative(1), [selectRelative]);
   const selectPrev = useCallback(() => selectRelative(-1), [selectRelative]);
+
+  // 자동 저장 — 편집 멈추면 1.5s 뒤 dirty 문서 저장
+  useEffect(() => {
+    if (!autosaveOn) return;
+    const dirty = state.openDocs.filter(
+      (d) => isTextKind(d.kind) && d.content !== d.saved,
+    );
+    if (!dirty.length) return;
+    const t = setTimeout(() => {
+      dirty.forEach((d) => void save(d.path));
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [state.openDocs, autosaveOn, save]);
 
   const value = useMemo<DocCtx>(
     () => ({

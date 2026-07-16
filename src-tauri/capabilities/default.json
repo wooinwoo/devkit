@@ -16,6 +16,8 @@
     "fs:allow-watch",
     "window-state:default",
     "updater:default",
-    "process:default"
+    "process:default",
+    "opener:allow-reveal-item-in-dir",
+    "opener:allow-open-path"
   ]
 }

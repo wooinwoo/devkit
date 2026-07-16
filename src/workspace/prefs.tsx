@@ -19,6 +19,7 @@ export interface UiPrefs {
   focus: boolean; // 집중 모드 (크롬 숨김)
   collapsedDirs: string[]; // 파일트리에서 접어둔 폴더 경로 (재스캔에도 유지)
   theme: Theme; // 라이트/다크/시스템
+  autosave: boolean; // 편집 후 자동 저장
 }
 
 const DEFAULTS: UiPrefs = {
@@ -30,6 +31,7 @@ const DEFAULTS: UiPrefs = {
   focus: false,
   collapsedDirs: [],
   theme: "system",
+  autosave: true,
 };
 
 /** 마크다운 본문 max-width (CSS 값). full 은 제한 없음 */

@@ -59,7 +59,7 @@ function Segmented<T extends string>({
 }
 
 export function SettingsPanel({ onClose }: { onClose: () => void }) {
-  const { theme, docWidth, set } = usePrefs();
+  const { theme, docWidth, autosave, set } = usePrefs();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -114,6 +114,25 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
               options={WIDTHS}
               onChange={(v) => set("docWidth", v)}
             />
+          </section>
+
+          <section className="flex items-center justify-between">
+            <span className="text-[13px] text-text">자동 저장</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autosave}
+              onClick={() => set("autosave", !autosave)}
+              className={`relative h-5 w-9 rounded-full transition-colors ${
+                autosave ? "bg-accent" : "bg-line-strong"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 size-4 rounded-full bg-white transition-transform ${
+                  autosave ? "translate-x-4" : "translate-x-0.5"
+                }`}
+              />
+            </button>
           </section>
 
           <section className="flex flex-col gap-1.5">

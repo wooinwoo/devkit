@@ -131,6 +131,42 @@ fn read_binary(path: String) -> Result<Vec<u8>, String> {
     std::fs::read(&path).map_err(|e| e.to_string())
 }
 
+/// 바이너리 저장 (이미지 붙여넣기 등).
+#[tauri::command]
+fn write_binary(path: String, bytes: Vec<u8>) -> Result<(), String> {
+    std::fs::write(&path, bytes).map_err(|e| e.to_string())
+}
+
+/// 파일·폴더 이름 변경/이동.
+#[tauri::command]
+fn rename_path(from: String, to: String) -> Result<(), String> {
+    if Path::new(&to).exists() {
+        return Err("같은 이름이 이미 있어요".into());
+    }
+    std::fs::rename(&from, &to).map_err(|e| e.to_string())
+}
+
+/// 빈 파일 생성.
+#[tauri::command]
+fn create_file(path: String) -> Result<(), String> {
+    if Path::new(&path).exists() {
+        return Err("이미 있는 파일이에요".into());
+    }
+    std::fs::write(&path, "").map_err(|e| e.to_string())
+}
+
+/// 폴더 생성.
+#[tauri::command]
+fn create_dir(path: String) -> Result<(), String> {
+    std::fs::create_dir_all(&path).map_err(|e| e.to_string())
+}
+
+/// OS 휴지통으로 삭제 (영구삭제 아님 — 복구 가능).
+#[tauri::command]
+fn delete_path(path: String) -> Result<(), String> {
+    trash::delete(&path).map_err(|e| e.to_string())
+}
+
 /// 프론트가 최초 실행 시 조회: cold start 로 넘어온 파일 경로.
 #[tauri::command]
 fn get_opened_file(app: tauri::AppHandle) -> Option<String> {
@@ -162,12 +198,18 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(OpenedFile::default())
         .invoke_handler(tauri::generate_handler![
             list_docs,
             read_file,
             read_binary,
+            write_binary,
             save_file,
+            rename_path,
+            create_file,
+            create_dir,
+            delete_path,
             get_opened_file
         ])
         .setup(|app| {

@@ -2,6 +2,19 @@ import { useMemo, useState } from "react";
 import { type DocKind, type TreeNode, kindOf } from "./types";
 import { useDocs } from "./store";
 import { usePrefs } from "../workspace/prefs";
+import { ContextMenu, type MenuItem } from "./ContextMenu";
+import {
+  createDir,
+  createFile,
+  deletePath,
+  dirOf,
+  openWithDefault,
+  renamePath,
+  revealInDir,
+  sep,
+} from "./fs";
+
+type ContextHandler = (e: React.MouseEvent, node: TreeNode) => void;
 
 /** 이름으로 트리 필터 — 파일은 이름 매칭, 폴더는 이름 매칭이거나 하위에 매칭 있으면 유지 */
 function filterTree(nodes: TreeNode[], q: string): TreeNode[] {
@@ -52,7 +65,15 @@ function extLabel(name: string): string {
   return i > 0 ? name.slice(i + 1).toUpperCase().slice(0, 4) : "FILE";
 }
 
-function Node({ node, forceOpen }: { node: TreeNode; forceOpen?: boolean }) {
+function Node({
+  node,
+  forceOpen,
+  onContext,
+}: {
+  node: TreeNode;
+  forceOpen?: boolean;
+  onContext: ContextHandler;
+}) {
   const { openPaths, activePath } = useDocs();
   const { collapsedDirs, toggleDir } = usePrefs();
 
@@ -72,7 +93,10 @@ function Node({ node, forceOpen }: { node: TreeNode; forceOpen?: boolean }) {
             toggleDir(node.path, !isOpen);
           }}
         >
-          <summary className="cursor-pointer list-none py-1 font-mono text-xs text-muted marker:content-none hover:text-fg">
+          <summary
+            onContextMenu={(e) => onContext(e, node)}
+            className="cursor-pointer list-none py-1 font-mono text-xs text-muted marker:content-none hover:text-fg"
+          >
             <span className="text-faint">▸ </span>
             {node.name}
             {empty && <span className="ml-1 text-faint">· 빈 폴더</span>}
@@ -80,7 +104,12 @@ function Node({ node, forceOpen }: { node: TreeNode; forceOpen?: boolean }) {
           {!empty && (
             <ul className="ml-3 border-l border-line-soft pl-1.5">
               {node.children?.map((c) => (
-                <Node key={c.path} node={c} forceOpen={forceOpen} />
+                <Node
+                  key={c.path}
+                  node={c}
+                  forceOpen={forceOpen}
+                  onContext={onContext}
+                />
               ))}
             </ul>
           )}
@@ -89,12 +118,13 @@ function Node({ node, forceOpen }: { node: TreeNode; forceOpen?: boolean }) {
     );
   }
 
-  // 못 여는 형식 = 회색으로 표시만 (클릭 불가)
+  // 못 여는 형식 = 회색으로 표시만 (클릭 불가, 우클릭으로 기본 앱 열기)
   if (!node.kind) {
     return (
       <li>
         <span
-          title="devkit에서 열 수 없는 형식이에요"
+          onContextMenu={(e) => onContext(e, node)}
+          title="devkit에서 열 수 없는 형식이에요 (우클릭 → 기본 앱)"
           className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[13px] text-faint"
         >
           <span className="shrink-0 rounded bg-fg/5 px-1 py-px font-mono text-[9px] font-semibold text-faint">
@@ -112,6 +142,7 @@ function Node({ node, forceOpen }: { node: TreeNode; forceOpen?: boolean }) {
       <button
         type="button"
         onClick={() => openPaths([node.path])}
+        onContextMenu={(e) => onContext(e, node)}
         aria-current={active}
         className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[13px] transition-colors ${
           active ? "bg-surface text-fg" : "text-text hover:bg-surface/60"
@@ -125,12 +156,106 @@ function Node({ node, forceOpen }: { node: TreeNode; forceOpen?: boolean }) {
 }
 
 export function FileTree() {
-  const { folder, openDocs, activePath, select, openPaths, recentFiles } =
-    useDocs();
+  const {
+    folder,
+    openDocs,
+    activePath,
+    select,
+    openPaths,
+    recentFiles,
+    refreshFolder,
+    close,
+  } = useDocs();
   const [query, setQuery] = useState("");
+  const [menu, setMenu] = useState<{ x: number; y: number; node: TreeNode } | null>(
+    null,
+  );
   const q = query.trim().toLowerCase();
   const tree = folder?.tree ?? [];
   const filtered = useMemo(() => (q ? filterTree(tree, q) : tree), [tree, q]);
+
+  const onContext: ContextHandler = (e, node) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenu({ x: e.clientX, y: e.clientY, node });
+  };
+
+  // 파일 조작 후 트리 새로고침
+  async function withRefresh(fn: () => Promise<void>) {
+    try {
+      await fn();
+    } catch (err) {
+      alert((err as Error).message ?? String(err));
+    }
+    await refreshFolder();
+  }
+
+  function menuItems(node: TreeNode): MenuItem[] {
+    const targetDir = node.isDir ? node.path : dirOf(node.path);
+    const s = sep(node.path);
+    const items: MenuItem[] = [];
+    if (!node.isDir && node.kind) {
+      items.push({ label: "열기", run: () => void openPaths([node.path]) });
+    }
+    if (!node.isDir && !node.kind) {
+      items.push({
+        label: "기본 앱으로 열기",
+        run: () => void openWithDefault(node.path),
+      });
+    }
+    items.push(
+      {
+        label: "이름 변경",
+        run: () => {
+          const name = window.prompt("새 이름", node.name);
+          if (!name || name === node.name) return;
+          void withRefresh(() => renamePath(node.path, targetDir + s + name));
+        },
+      },
+      {
+        label: "삭제 (휴지통)",
+        danger: true,
+        run: () => {
+          if (!window.confirm(`"${node.name}" 을(를) 휴지통으로 보낼까요?`)) return;
+          void withRefresh(async () => {
+            await deletePath(node.path);
+            if (openDocs.some((d) => d.path === node.path)) close(node.path);
+          });
+        },
+      },
+      { label: "-", run: () => {} },
+      {
+        label: "새 파일",
+        run: () => {
+          const name = window.prompt("새 파일 이름 (예: memo.md)");
+          if (!name) return;
+          const p = targetDir + s + name;
+          void withRefresh(async () => {
+            await createFile(p);
+            if (kindOf(p)) await openPaths([p]);
+          });
+        },
+      },
+      {
+        label: "새 폴더",
+        run: () => {
+          const name = window.prompt("새 폴더 이름");
+          if (!name) return;
+          void withRefresh(() => createDir(targetDir + s + name));
+        },
+      },
+      { label: "-", run: () => {} },
+      {
+        label: "탐색기에서 보기",
+        run: () => void revealInDir(node.path),
+      },
+      {
+        label: "경로 복사",
+        run: () => void navigator.clipboard?.writeText(node.path),
+      },
+    );
+    return items;
+  }
 
   // 폴더가 열려 있으면 트리(+검색), 아니면 '열린 문서' 평면 리스트로 폴백
   if (folder) {
@@ -155,9 +280,17 @@ export function FileTree() {
         ) : (
           <ul className="flex flex-col">
             {filtered.map((n) => (
-              <Node key={n.path} node={n} forceOpen={!!q} />
+              <Node key={n.path} node={n} forceOpen={!!q} onContext={onContext} />
             ))}
           </ul>
+        )}
+        {menu && (
+          <ContextMenu
+            x={menu.x}
+            y={menu.y}
+            items={menuItems(menu.node)}
+            onClose={() => setMenu(null)}
+          />
         )}
       </div>
     );
