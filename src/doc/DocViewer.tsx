@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useRef } from "react";
 import { EmptyState } from "./EmptyState";
 import { HtmlView } from "./HtmlView";
 import { ImageView, VideoView } from "./MediaView";
+import { SourceEditor } from "./SourceEditor";
 import { useDocs } from "./store";
 import { isTextKind } from "./types";
 import {
@@ -142,18 +143,26 @@ export function DocViewer() {
   const dirty = doc.content !== doc.saved;
 
   const sourceArea = (
-    <textarea
-      value={doc.content}
-      onChange={(e) => edit(doc.path, e.target.value)}
-      spellCheck={false}
-      className="min-h-0 flex-1 resize-none bg-transparent p-6 font-mono text-[13px] leading-relaxed text-text outline-none"
-      aria-label={`${doc.name} 소스`}
-    />
+    <div className="min-h-0 flex-1">
+      <SourceEditor
+        docKey={`${doc.path}:source`}
+        path={doc.path}
+        value={doc.content}
+        onChange={(v) => edit(doc.path, v)}
+        registerFlush={(get) => registerEditor(doc.path, get)}
+      />
+    </div>
   );
 
-  // 자체 스크롤·자체 확대를 갖는 뷰어(pdf·xlsx·image)는 전역 zoom 래퍼 밖에서 렌더
+  // 소스 에디터(CodeMirror)를 쓰는 경우 — text 파일이거나 md/html 소스 모드
+  const usesSourceEditor =
+    doc.kind === "text" || (showToggle && viewMode === "source");
+  // 자체 스크롤을 갖는 뷰어·에디터는 전역 zoom 래퍼 밖에서 렌더
   const ownsScroll =
-    doc.kind === "pdf" || doc.kind === "xlsx" || doc.kind === "image";
+    doc.kind === "pdf" ||
+    doc.kind === "xlsx" ||
+    doc.kind === "image" ||
+    usesSourceEditor;
 
   let flow: React.ReactNode; // 스크롤+줌 래퍼로 감쌀 콘텐츠
   let raw: React.ReactNode; // 자체 스크롤 뷰어 (직접 렌더)
@@ -189,9 +198,9 @@ export function DocViewer() {
       </div>
     );
   } else if (doc.kind === "text") {
-    flow = sourceArea; // 일반 텍스트는 항상 소스 편집
+    raw = sourceArea; // 일반 텍스트·코드는 항상 소스 편집
   } else if (viewMode === "source") {
-    flow = sourceArea;
+    raw = sourceArea; // md/html 소스 모드
   } else if (doc.kind === "markdown") {
     flow = (
       <div className="min-h-0 flex-1">

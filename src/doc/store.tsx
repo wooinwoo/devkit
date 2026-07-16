@@ -301,9 +301,9 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
       const doc = state.openDocs.find((d) => d.path === path);
       if (!doc) return;
       let content = contentOverride ?? doc.content;
-      // 마크다운은 에디터 실시간값을 우선 (Ctrl+S 가 디바운스 옛 값을 쓰는 유실 방지)
+      // 에디터(마크다운·소스) 실시간값 우선 (Ctrl+S 가 디바운스 옛 값을 쓰는 유실 방지)
       const fl = editorFlushRef.current;
-      if (contentOverride === undefined && doc.kind === "markdown" && fl?.path === path) {
+      if (contentOverride === undefined && fl?.path === path) {
         try {
           content = fl.get();
         } catch {
