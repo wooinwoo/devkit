@@ -1,6 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { readBinary } from "./fs";
+
+interface Sel {
+  ar: number; // anchor row
+  ac: number; // anchor col
+  fr: number; // focus row
+  fc: number; // focus col
+}
+const norm = (s: Sel) => ({
+  r0: Math.min(s.ar, s.fr),
+  r1: Math.max(s.ar, s.fr),
+  c0: Math.min(s.ac, s.fc),
+  c1: Math.max(s.ac, s.fc),
+});
 
 const MAX_ROWS = 5000; // 뷰어 성능 상한
 
@@ -61,12 +74,15 @@ export function XlsxView({ path, zoom = 1 }: { path: string; zoom?: number }) {
   const [sheets, setSheets] = useState<Sheet[] | null>(null);
   const [active, setActive] = useState(0);
   const [err, setErr] = useState<string | null>(null);
+  const [sel, setSel] = useState<Sel | null>(null);
+  const selecting = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
     setSheets(null);
     setErr(null);
     setActive(0);
+    setSel(null);
     (async () => {
       try {
         const bytes = await readBinary(path);
@@ -98,6 +114,37 @@ export function XlsxView({ path, zoom = 1 }: { path: string; zoom?: number }) {
     [sheet],
   );
 
+  // 시트 전환 시 선택 해제
+  useEffect(() => setSel(null), [active]);
+
+  // 드래그 종료 (박스 밖에서 떼도)
+  useEffect(() => {
+    const up = () => {
+      selecting.current = false;
+    };
+    window.addEventListener("pointerup", up);
+    return () => window.removeEventListener("pointerup", up);
+  }, []);
+
+  // Ctrl+C → 선택 범위를 TSV 로 클립보드 복사
+  const copySel = useCallback(() => {
+    if (!sel || !sheet) return;
+    const { r0, r1, c0, c1 } = norm(sel);
+    const lines: string[] = [];
+    for (let r = r0; r <= r1; r++) {
+      const cols: string[] = [];
+      for (let c = c0; c <= c1; c++) cols.push(sheet.rows[r]?.[c] ?? "");
+      lines.push(cols.join("\t"));
+    }
+    navigator.clipboard?.writeText(lines.join("\n")).catch(() => {});
+  }, [sel, sheet]);
+
+  const inSel = (r: number, c: number) => {
+    if (!sel) return false;
+    const { r0, r1, c0, c1 } = norm(sel);
+    return r >= r0 && r <= r1 && c >= c0 && c <= c1;
+  };
+
   if (err) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center text-sm text-rose">
@@ -115,7 +162,13 @@ export function XlsxView({ path, zoom = 1 }: { path: string; zoom?: number }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="xlsx-sheet min-h-0 flex-1 overflow-auto">
+      <div
+        className="xlsx-sheet min-h-0 flex-1 overflow-auto outline-none"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") copySel();
+        }}
+      >
         {/* zoom 은 스크롤 컨테이너 내부 표에만 적용 → 스크롤·고정헤더 정상 */}
         <div style={{ zoom }}>
           <table className="sheet-grid">
@@ -134,8 +187,21 @@ export function XlsxView({ path, zoom = 1 }: { path: string; zoom?: number }) {
                 <tr key={r}>
                   <th scope="row">{r + 1}</th>
                   {colLetters.map((_, c) => (
-                    // eslint-disable-next-line react/no-array-index-key
-                    <td key={c} className={sheet.nums[r]?.[c] ? "num" : undefined}>
+                    <td
+                      // eslint-disable-next-line react/no-array-index-key
+                      key={c}
+                      onPointerDown={() => {
+                        selecting.current = true;
+                        setSel({ ar: r, ac: c, fr: r, fc: c });
+                      }}
+                      onPointerEnter={() => {
+                        if (selecting.current)
+                          setSel((s) => (s ? { ...s, fr: r, fc: c } : s));
+                      }}
+                      className={`${sheet.nums[r]?.[c] ? "num" : ""} ${
+                        inSel(r, c) ? "sel" : ""
+                      }`}
+                    >
                       {row[c] ?? ""}
                     </td>
                   ))}

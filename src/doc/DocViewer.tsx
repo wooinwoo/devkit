@@ -151,8 +151,9 @@ export function DocViewer() {
     />
   );
 
-  // 자체 스크롤을 갖는 뷰어(pdf·xlsx)는 zoom 을 내부에서 처리
-  const ownsScroll = doc.kind === "pdf" || doc.kind === "xlsx";
+  // 자체 스크롤·자체 확대를 갖는 뷰어(pdf·xlsx·image)는 전역 zoom 래퍼 밖에서 렌더
+  const ownsScroll =
+    doc.kind === "pdf" || doc.kind === "xlsx" || doc.kind === "image";
 
   let flow: React.ReactNode; // 스크롤+줌 래퍼로 감쌀 콘텐츠
   let raw: React.ReactNode; // 자체 스크롤 뷰어 (직접 렌더)
@@ -162,11 +163,7 @@ export function DocViewer() {
   } else if (doc.kind === "xlsx") {
     raw = <XlsxView path={doc.path} zoom={zoom} />;
   } else if (doc.kind === "image") {
-    flow = (
-      <div className="min-h-0 flex-1">
-        <ImageView path={doc.path} />
-      </div>
-    );
+    raw = <ImageView path={doc.path} />; // 자체 줌·팬·회전
   } else if (doc.kind === "video") {
     flow = (
       <div className="min-h-0 flex-1">
