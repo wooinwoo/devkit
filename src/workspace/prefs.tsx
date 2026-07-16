@@ -8,6 +8,7 @@ import {
 } from "react";
 
 export type DocWidth = "narrow" | "normal" | "wide" | "full";
+export type Theme = "light" | "dark" | "system";
 
 export interface UiPrefs {
   sidebarCollapsed: boolean;
@@ -17,6 +18,7 @@ export interface UiPrefs {
   docWidth: DocWidth; // 마크다운 본문 좌우 폭
   focus: boolean; // 집중 모드 (크롬 숨김)
   collapsedDirs: string[]; // 파일트리에서 접어둔 폴더 경로 (재스캔에도 유지)
+  theme: Theme; // 라이트/다크/시스템
 }
 
 const DEFAULTS: UiPrefs = {
@@ -27,6 +29,7 @@ const DEFAULTS: UiPrefs = {
   docWidth: "normal",
   focus: false,
   collapsedDirs: [],
+  theme: "system",
 };
 
 /** 마크다운 본문 max-width (CSS 값). full 은 제한 없음 */
@@ -79,6 +82,18 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       /* ignore */
     }
   }, [prefs]);
+
+  // 테마를 <html> 에 반영 (system 이면 OS 설정 따름)
+  useEffect(() => {
+    const root = document.documentElement;
+    if (prefs.theme === "system") {
+      root.removeAttribute("data-theme");
+      root.style.colorScheme = "light dark";
+    } else {
+      root.setAttribute("data-theme", prefs.theme);
+      root.style.colorScheme = prefs.theme;
+    }
+  }, [prefs.theme]);
 
   const set = useCallback(
     <K extends keyof UiPrefs>(k: K, v: UiPrefs[K]) =>

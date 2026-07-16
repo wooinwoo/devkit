@@ -1,6 +1,25 @@
+import { useMemo, useState } from "react";
 import { type DocKind, type TreeNode, kindOf } from "./types";
 import { useDocs } from "./store";
 import { usePrefs } from "../workspace/prefs";
+
+/** 이름으로 트리 필터 — 파일은 이름 매칭, 폴더는 이름 매칭이거나 하위에 매칭 있으면 유지 */
+function filterTree(nodes: TreeNode[], q: string): TreeNode[] {
+  const out: TreeNode[] = [];
+  for (const n of nodes) {
+    if (n.isDir) {
+      if (n.name.toLowerCase().includes(q)) {
+        out.push(n); // 폴더명 매칭 → 하위 전체 표시
+      } else {
+        const kids = filterTree(n.children ?? [], q);
+        if (kids.length) out.push({ ...n, children: kids });
+      }
+    } else if (n.name.toLowerCase().includes(q)) {
+      out.push(n);
+    }
+  }
+  return out;
+}
 
 const BADGE: Record<DocKind, string> = {
   markdown: "MD",
@@ -33,14 +52,15 @@ function extLabel(name: string): string {
   return i > 0 ? name.slice(i + 1).toUpperCase().slice(0, 4) : "FILE";
 }
 
-function Node({ node }: { node: TreeNode }) {
+function Node({ node, forceOpen }: { node: TreeNode; forceOpen?: boolean }) {
   const { openPaths, activePath } = useDocs();
   const { collapsedDirs, toggleDir } = usePrefs();
 
   if (node.isDir) {
     const empty = !node.children || node.children.length === 0;
     // 접힘 상태는 prefs 에 저장 → 저장/재스캔으로 트리가 교체돼도 유지
-    const open = !empty && !collapsedDirs.includes(node.path);
+    // 검색 중이면(forceOpen) 강제로 펼침
+    const open = forceOpen || (!empty && !collapsedDirs.includes(node.path));
     return (
       <li>
         <details
@@ -48,6 +68,7 @@ function Node({ node }: { node: TreeNode }) {
           onToggle={(e) => {
             const isOpen = e.currentTarget.open;
             if (isOpen === open) return; // 상태 일치면 무시 (재렌더 루프 방지)
+            if (forceOpen) return; // 검색 중 토글은 무시
             toggleDir(node.path, !isOpen);
           }}
         >
@@ -59,7 +80,7 @@ function Node({ node }: { node: TreeNode }) {
           {!empty && (
             <ul className="ml-3 border-l border-line-soft pl-1.5">
               {node.children?.map((c) => (
-                <Node key={c.path} node={c} />
+                <Node key={c.path} node={c} forceOpen={forceOpen} />
               ))}
             </ul>
           )}
@@ -106,20 +127,39 @@ function Node({ node }: { node: TreeNode }) {
 export function FileTree() {
   const { folder, openDocs, activePath, select, openPaths, recentFiles } =
     useDocs();
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const tree = folder?.tree ?? [];
+  const filtered = useMemo(() => (q ? filterTree(tree, q) : tree), [tree, q]);
 
-  // 폴더가 열려 있으면 트리, 아니면 '열린 문서' 평면 리스트로 폴백
+  // 폴더가 열려 있으면 트리(+검색), 아니면 '열린 문서' 평면 리스트로 폴백
   if (folder) {
-    if (folder.tree.length === 0) {
-      return (
-        <p className="px-2 py-3 text-xs text-faint">이 폴더는 비어 있어요.</p>
-      );
-    }
     return (
-      <ul className="flex flex-col">
-        {folder.tree.map((n) => (
-          <Node key={n.path} node={n} />
-        ))}
-      </ul>
+      <div className="flex flex-col">
+        <div className="px-1 pb-2">
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="파일 검색"
+            aria-label="파일 검색"
+            className="w-full rounded-md border border-line-soft bg-bg px-2.5 py-1 text-xs text-text outline-none placeholder:text-faint focus:border-accent"
+          />
+        </div>
+        {folder.tree.length === 0 ? (
+          <p className="px-2 py-3 text-xs text-faint">이 폴더는 비어 있어요.</p>
+        ) : filtered.length === 0 ? (
+          <p className="px-2 py-3 text-xs text-faint">
+            "{query}" 결과가 없어요.
+          </p>
+        ) : (
+          <ul className="flex flex-col">
+            {filtered.map((n) => (
+              <Node key={n.path} node={n} forceOpen={!!q} />
+            ))}
+          </ul>
+        )}
+      </div>
     );
   }
 

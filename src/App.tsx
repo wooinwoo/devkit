@@ -1,6 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { CommandPalette } from "./doc/CommandPalette";
 import { DocViewer } from "./doc/DocViewer";
+import { SettingsPanel } from "./doc/SettingsPanel";
 import { Sidebar } from "./doc/Sidebar";
 import { StatusBar } from "./doc/StatusBar";
 import { TabBar } from "./doc/TabBar";
@@ -22,6 +24,15 @@ function Shell() {
     selectByIndex,
   } = useDocs();
   const prefs = usePrefs();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // 사이드바 설정 버튼 → 패널 열기
+  useEffect(() => {
+    const open = () => setSettingsOpen(true);
+    window.addEventListener("devkit:open-settings", open);
+    return () => window.removeEventListener("devkit:open-settings", open);
+  }, []);
 
   // 창에 파일·폴더 드래그앤드롭 → 열기
   useEffect(() => {
@@ -96,6 +107,12 @@ function Shell() {
       } else if (mod && e.key >= "1" && e.key <= "9") {
         e.preventDefault();
         selectByIndex(Number(e.key) - 1);
+      } else if (mod && e.key === ",") {
+        e.preventDefault();
+        setSettingsOpen((v) => !v);
+      } else if (mod && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
       } else if (e.key === "F8") {
         e.preventDefault();
         prefs.toggleFocus();
@@ -141,6 +158,13 @@ function Shell() {
           </button>
         )}
       </main>
+
+      {settingsOpen && (
+        <SettingsPanel onClose={() => setSettingsOpen(false)} />
+      )}
+      {paletteOpen && (
+        <CommandPalette onClose={() => setPaletteOpen(false)} />
+      )}
     </div>
   );
 }

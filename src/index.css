@@ -20,8 +20,37 @@
     Consolas, monospace;
 }
 
-html {
-  color-scheme: light;
+/* 다크 테마 토큰 — 앱 크롬·에디터에 적용 (PDF/문서 종이배경은 뷰어가 유지) */
+:root[data-theme="dark"] {
+  --color-bg: #16181d;
+  --color-bg-deep: #1c1f26;
+  --color-surface: #22262e;
+  --color-line-soft: #2a2e37;
+  --color-line-strong: #3a4049;
+  --color-fg: #eceef2;
+  --color-text: #c7ccd6;
+  --color-muted: #8b93a1;
+  --color-faint: #5f6674;
+  --color-accent: #6b9bff;
+  --color-accent-soft: #1f2740;
+  --color-rose: #f0745e;
+}
+/* system 선택 시 OS 다크를 따름 (data-theme=light 로 명시 강제한 경우 제외) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #16181d;
+    --color-bg-deep: #1c1f26;
+    --color-surface: #22262e;
+    --color-line-soft: #2a2e37;
+    --color-line-strong: #3a4049;
+    --color-fg: #eceef2;
+    --color-text: #c7ccd6;
+    --color-muted: #8b93a1;
+    --color-faint: #5f6674;
+    --color-accent: #6b9bff;
+    --color-accent-soft: #1f2740;
+    --color-rose: #f0745e;
+  }
 }
 
 body {
