@@ -135,6 +135,22 @@ body {
   user-select: none;
 }
 
+/* 주피터 노트북 마크다운 셀 */
+.ipynb-md h1 { font-size: 1.6em; font-weight: 700; margin: 0.6em 0 0.3em; color: var(--color-fg); }
+.ipynb-md h2 { font-size: 1.3em; font-weight: 700; margin: 0.6em 0 0.3em; color: var(--color-fg); }
+.ipynb-md h3 { font-size: 1.1em; font-weight: 600; margin: 0.5em 0 0.3em; color: var(--color-fg); }
+.ipynb-md p { margin: 0.5em 0; }
+.ipynb-md ul, .ipynb-md ol { margin: 0.5em 0; padding-left: 1.4em; }
+.ipynb-md ul { list-style: disc; }
+.ipynb-md ol { list-style: decimal; }
+.ipynb-md a { color: var(--color-accent); }
+.ipynb-md code { font-family: var(--font-mono); font-size: 0.88em; background: var(--color-bg-deep); padding: 0.1em 0.35em; border-radius: 4px; }
+.ipynb-md pre { overflow-x: auto; border: 1px solid var(--color-line-soft); border-radius: 6px; padding: 0.75rem; }
+.ipynb-md pre code { background: none; padding: 0; }
+.ipynb-md table { border-collapse: collapse; }
+.ipynb-md th, .ipynb-md td { border: 1px solid var(--color-line-soft); padding: 3px 8px; }
+.ipynb-md blockquote { border-left: 3px solid var(--color-accent); padding-left: 0.8em; color: var(--color-muted); }
+
 /* PDF 페이지 + 선택 가능한 텍스트 레이어 */
 .pdf-page {
   position: relative;

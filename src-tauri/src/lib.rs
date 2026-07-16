@@ -24,6 +24,7 @@ fn doc_kind(name: &str) -> Option<&'static str> {
         "html" | "htm" => Some("html"),
         "hwp" | "hwpx" => Some("hwp"),
         "docx" => Some("docx"),
+        "ipynb" => Some("ipynb"),
         "pdf" => Some("pdf"),
         "xlsx" | "xls" | "csv" | "tsv" => Some("xlsx"),
         "pptx" | "ppt" => Some("pptx"),

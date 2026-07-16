@@ -30,6 +30,9 @@ const PptxView = lazy(() =>
 const DocxView = lazy(() =>
   import("./DocxView").then((m) => ({ default: m.DocxView })),
 );
+const IpynbView = lazy(() =>
+  import("./IpynbView").then((m) => ({ default: m.IpynbView })),
+);
 
 function Segmented() {
   const { viewMode, setViewMode } = useDocs();
@@ -195,6 +198,12 @@ export function DocViewer() {
     flow = (
       <div className="min-h-0 flex-1">
         <DocxView path={doc.path} />
+      </div>
+    );
+  } else if (doc.kind === "ipynb") {
+    flow = (
+      <div className="min-h-0 flex-1">
+        <IpynbView path={doc.path} />
       </div>
     );
   } else if (doc.kind === "text") {

@@ -45,6 +45,7 @@ const BADGE: Record<DocKind, string> = {
   xlsx: "XLS",
   pptx: "PPT",
   docx: "DOCX",
+  ipynb: "IPYNB",
 };
 
 function KindBadge({ kind }: { kind?: DocKind }) {

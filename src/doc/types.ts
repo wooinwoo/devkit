@@ -8,7 +8,8 @@ export type DocKind =
   | "pdf"
   | "xlsx"
   | "pptx"
-  | "docx";
+  | "docx"
+  | "ipynb";
 
 /** 텍스트로 읽어 편집 가능한 종류인지 (이미지·영상은 바이너리라 제외) */
 export function isTextKind(k: DocKind): boolean {
@@ -60,6 +61,7 @@ export function kindOf(path: string): DocKind | null {
   if (ext === "html" || ext === "htm") return "html";
   if (ext === "hwp" || ext === "hwpx") return "hwp";
   if (ext === "docx") return "docx";
+  if (ext === "ipynb") return "ipynb";
   if (ext === "pdf") return "pdf";
   if (ext === "xlsx" || ext === "xls" || ext === "csv" || ext === "tsv")
     return "xlsx";
@@ -73,7 +75,7 @@ export function kindOf(path: string): DocKind | null {
 /** 열기 다이얼로그·폴더 스캔에서 허용할 전체 확장자 */
 export const ALL_EXTS = [
   "md", "markdown", "html", "htm", "hwp", "hwpx", "pdf",
-  "xlsx", "xls", "csv", "tsv", "pptx", "ppt", "docx",
+  "xlsx", "xls", "csv", "tsv", "pptx", "ppt", "docx", "ipynb",
   ...IMAGE_EXTS, ...VIDEO_EXTS, ...TEXT_EXTS,
 ];
 
