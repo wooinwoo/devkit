@@ -104,6 +104,11 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   }, [items, q]);
 
   useEffect(() => setIdx(0), [q]);
+  useEffect(() => {
+    listRef.current
+      ?.querySelectorAll<HTMLElement>("button")
+      [idx]?.scrollIntoView({ block: "nearest" });
+  }, [idx]);
 
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {

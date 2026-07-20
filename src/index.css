@@ -1,4 +1,3 @@
-@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
 @import "tailwindcss";
 
 @theme {
@@ -14,8 +13,9 @@
   --color-accent: #0047ab;
   --color-accent-soft: #eaeff8;
   --color-rose: #c2361f;
+  --color-paper: #fbfbfa;
 
-  --font-sans: "Pretendard Variable", Pretendard, -apple-system, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "Cascadia Code", "JetBrains Mono", "SF Mono",
     Consolas, monospace;
 }
@@ -34,6 +34,7 @@
   --color-accent: #6b9bff;
   --color-accent-soft: #1f2740;
   --color-rose: #f0745e;
+  --color-paper: #e8e9eb;
 }
 /* system 선택 시 OS 다크를 따름 (data-theme=light 로 명시 강제한 경우 제외) */
 @media (prefers-color-scheme: dark) {
@@ -50,6 +51,7 @@
     --color-accent: #6b9bff;
     --color-accent-soft: #1f2740;
     --color-rose: #f0745e;
+    --color-paper: #e8e9eb;
   }
 }
 
@@ -155,7 +157,7 @@ body {
 .pdf-page {
   position: relative;
   margin: 0 auto;
-  background: #fff;
+  background: var(--color-paper);
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.12);
 }
 .pdf-page canvas {

@@ -12,8 +12,10 @@ import {
   listDocs,
   pickFiles,
   pickFolder,
+  readBinary,
   readDoc,
   watchFolder,
+  writeBinary,
   writeDoc,
 } from "./fs";
 import {
@@ -22,6 +24,7 @@ import {
   type ViewMode,
   type ViewerState,
   basename,
+  isEditableDoc,
   isTextKind,
   kindOf,
 } from "./types";
@@ -29,23 +32,22 @@ import { usePrefs } from "../workspace/prefs";
 
 type Action =
   | { t: "OPEN_FOLDER"; root: string; tree: TreeNode[] }
-  | { t: "DOC_START"; path: string }
-  | { t: "DOC_DONE"; path: string; content: string }
-  | { t: "DOC_FAIL"; path: string; error: string }
+  | { t: "DOC_START"; path: string; loadId: number }
+  | { t: "DOC_DONE"; path: string; loadId: number; content: string }
+  | { t: "DOC_FAIL"; path: string; loadId: number; error: string }
   | { t: "EDIT"; path: string; content: string }
   | { t: "BASELINE"; path: string; content: string }
-  | { t: "MARK_SAVED"; path: string }
+  | { t: "MARK_SAVED"; path: string; content: string }
+  | { t: "SHEET_SAVED"; path: string; draft: string }
   | { t: "SELECT"; path: string }
   | { t: "CLOSE"; path: string }
-  | { t: "VIEW_MODE"; mode: ViewMode }
-  | { t: "TOGGLE_SCRIPTS" };
+  | { t: "VIEW_MODE"; mode: ViewMode };
 
 const initial: ViewerState = {
   folder: null,
   openDocs: [],
   activePath: null,
   viewMode: "rich",
-  htmlAllowScripts: false,
 };
 
 function reducer(s: ViewerState, a: Action): ViewerState {
@@ -56,7 +58,15 @@ function reducer(s: ViewerState, a: Action): ViewerState {
     case "DOC_START": {
       // 이미 열려 있으면 포커스만
       if (s.openDocs.some((d) => d.path === a.path)) {
-        return { ...s, activePath: a.path };
+        return {
+          ...s,
+          activePath: a.path,
+          openDocs: s.openDocs.map((d) =>
+            d.path === a.path && d.status === "loading"
+              ? { ...d, loadId: a.loadId }
+              : d,
+          ),
+        };
       }
       const kind = kindOf(a.path) ?? "markdown";
       const doc: OpenDoc = {
@@ -66,6 +76,7 @@ function reducer(s: ViewerState, a: Action): ViewerState {
         content: "",
         saved: "",
         status: "loading",
+        loadId: a.loadId,
       };
       return { ...s, openDocs: [...s.openDocs, doc], activePath: a.path };
     }
@@ -74,7 +85,7 @@ function reducer(s: ViewerState, a: Action): ViewerState {
       return {
         ...s,
         openDocs: s.openDocs.map((d) =>
-          d.path === a.path
+          d.path === a.path && d.loadId === a.loadId
             ? { ...d, content: a.content, saved: a.content, status: "ready" }
             : d,
         ),
@@ -84,7 +95,9 @@ function reducer(s: ViewerState, a: Action): ViewerState {
       return {
         ...s,
         openDocs: s.openDocs.map((d) =>
-          d.path === a.path ? { ...d, status: "error", error: a.error } : d,
+          d.path === a.path && d.loadId === a.loadId
+            ? { ...d, status: "error", error: a.error }
+            : d,
         ),
       };
 
@@ -111,7 +124,17 @@ function reducer(s: ViewerState, a: Action): ViewerState {
       return {
         ...s,
         openDocs: s.openDocs.map((d) =>
-          d.path === a.path ? { ...d, saved: d.content } : d,
+          d.path === a.path ? { ...d, saved: a.content } : d,
+        ),
+      };
+
+    case "SHEET_SAVED":
+      return {
+        ...s,
+        openDocs: s.openDocs.map((d) =>
+          d.path === a.path && d.content === a.draft
+            ? { ...d, content: "", saved: "" }
+            : d,
         ),
       };
 
@@ -132,8 +155,6 @@ function reducer(s: ViewerState, a: Action): ViewerState {
     case "VIEW_MODE":
       return { ...s, viewMode: a.mode };
 
-    case "TOGGLE_SCRIPTS":
-      return { ...s, htmlAllowScripts: !s.htmlAllowScripts };
   }
 }
 
@@ -147,17 +168,20 @@ interface DocCtx extends ViewerState {
   setBaseline: (path: string, content: string) => void;
   save: (path: string, content?: string) => Promise<void>;
   select: (path: string) => void;
-  close: (path: string) => void;
+  close: (path: string) => boolean;
+  closePaths: (paths: string[]) => boolean;
   closeActive: () => void;
   selectNext: () => void;
   selectPrev: () => void;
   selectByIndex: (i: number) => void;
   setViewMode: (m: ViewMode) => void;
-  toggleScripts: () => void;
   recentFiles: string[];
   refreshFolder: () => Promise<void>;
+  hasUnsavedChanges: () => boolean;
+  hasPendingSaves: () => boolean;
+  sessionRestored: boolean;
   // 마크다운 에디터가 최신값 getter 를 등록 → 저장 시 디바운스 유실 방지
-  registerEditor: (path: string, getMarkdown: () => string) => void;
+  registerEditor: (path: string, getMarkdown: () => string) => () => void;
 }
 
 const Ctx = createContext<DocCtx | null>(null);
@@ -167,11 +191,54 @@ const SESSION_KEY = "devkit.session.v1";
 
 export function DocProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initial);
+  const [sessionRestored, setSessionRestored] = useState(false);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const autosaveOn = usePrefs().autosave;
+  const saveQueueRef = useRef(new Map<string, Promise<void>>());
+  const ownWritesRef = useRef(new Map<string, number>());
+  const watchGenerationRef = useRef(0);
+  const loadIdRef = useRef(0);
+  // 닫기 직후 남아 있던 autosave 콜백이 파일을 다시 만들지 못하게 한다.
+  const closedPathsRef = useRef(new Set<string>());
+
+  const editorFlushRef = useRef<{ path: string; get: () => string } | null>(
+    null,
+  );
+  const registerEditor = useCallback(
+    (path: string, get: () => string) => {
+      const entry = { path, get };
+      editorFlushRef.current = entry;
+      return () => {
+        if (editorFlushRef.current === entry) editorFlushRef.current = null;
+      };
+    },
+    [],
+  );
+  const flushEditor = useCallback((path: string): string | undefined => {
+    const doc = stateRef.current.openDocs.find((item) => item.path === path);
+    if (!doc) return undefined;
+    const editor = editorFlushRef.current;
+    if (editor?.path !== path) return doc.content;
+    try {
+      const content = editor.get();
+      if (content !== doc.content) dispatch({ t: "EDIT", path, content });
+      return content;
+    } catch {
+      return doc.content;
+    }
+  }, []);
+  const flushActiveEditor = useCallback(() => {
+    const path = stateRef.current.activePath;
+    if (path) flushEditor(path);
+  }, [flushEditor]);
 
   const [recentFiles, setRecentFiles] = useState<string[]>(() => {
     try {
-      return JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+      const value: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+      return Array.isArray(value)
+        ? value.filter((path): path is string => typeof path === "string").slice(0, 20)
+        : [];
     } catch {
       return [];
     }
@@ -184,25 +251,39 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
     }
   }, [recentFiles]);
 
+  const rememberRecent = useCallback((path: string) => {
+    if (!/[\\/]/.test(path) || path.startsWith("/samples/")) return;
+    setRecentFiles((prev) => [path, ...prev.filter((item) => item !== path)].slice(0, 20));
+  }, []);
+
   const loadDoc = useCallback(async (path: string) => {
-    // 실제 파일(다이얼로그/폴더/파일연결)만 최근에 기록 (테스트 URL 제외)
-    if (/[\\/]/.test(path) && !path.startsWith("/samples/")) {
-      setRecentFiles((prev) => [path, ...prev.filter((p) => p !== path)].slice(0, 20));
+    if (stateRef.current.openDocs.some((d) => d.path === path)) {
+      flushActiveEditor();
+      dispatch({ t: "SELECT", path });
+      rememberRecent(path);
+      return;
     }
-    dispatch({ t: "DOC_START", path });
+    closedPathsRef.current.delete(path);
+    // 같은 파일 저장 중 재열기는 디스크 반영이 끝난 뒤 읽는다.
+    await saveQueueRef.current.get(path)?.catch(() => {});
+    flushActiveEditor();
+    const loadId = ++loadIdRef.current;
+    dispatch({ t: "DOC_START", path, loadId });
     const kind = kindOf(path);
     // 이미지·영상은 바이너리 → 텍스트로 읽지 않고 경로만 (뷰어가 asset 로 렌더)
     if (kind && !isTextKind(kind)) {
-      dispatch({ t: "DOC_DONE", path, content: "" });
+      dispatch({ t: "DOC_DONE", path, loadId, content: "" });
+      rememberRecent(path);
       return;
     }
     try {
       const content = await readDoc(path);
-      dispatch({ t: "DOC_DONE", path, content });
+      dispatch({ t: "DOC_DONE", path, loadId, content });
+      rememberRecent(path);
     } catch (e) {
-      dispatch({ t: "DOC_FAIL", path, error: (e as Error).message });
+      dispatch({ t: "DOC_FAIL", path, loadId, error: (e as Error).message });
     }
-  }, []);
+  }, [flushActiveEditor, rememberRecent]);
 
   const openPaths = useCallback(
     async (paths: string[]) => {
@@ -223,14 +304,52 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
 
   // 특정 폴더 경로 열기 (다이얼로그·세션복원·DnD 공용)
   const openFolderRoot = useCallback(async (root: string) => {
+    const generation = ++watchGenerationRef.current;
     const tree = await listDocs(root);
+    if (generation !== watchGenerationRef.current) return;
     dispatch({ t: "OPEN_FOLDER", root, tree });
     // 폴더 자동 동기화: 변경 시 재스캔
     unwatchRef.current?.();
-    unwatchRef.current = await watchFolder(root, async () => {
-      const t = await listDocs(root);
-      dispatch({ t: "OPEN_FOLDER", root, tree: t });
+    let scanning = false;
+    let pending = false;
+    const scan = async () => {
+      if (scanning) {
+        pending = true;
+        return;
+      }
+      scanning = true;
+      try {
+        do {
+          pending = false;
+          const next = await listDocs(root);
+          if (generation === watchGenerationRef.current) {
+            dispatch({ t: "OPEN_FOLDER", root, tree: next });
+          }
+        } while (pending && generation === watchGenerationRef.current);
+      } catch {
+        /* 다음 watcher 이벤트나 수동 새로고침에서 재시도 */
+      } finally {
+        scanning = false;
+      }
+    };
+    const unwatch = await watchFolder(root, (change) => {
+      if (generation !== watchGenerationRef.current || !change.affectsTree) return;
+      const now = Date.now();
+      for (const [path, writtenAt] of ownWritesRef.current) {
+        if (now - writtenAt > 2_000) ownWritesRef.current.delete(path);
+      }
+      const externalPaths = change.paths.filter((path) => {
+        const ownWrite = ownWritesRef.current.get(path);
+        const temporary = basename(path).startsWith(".tmp");
+        return !temporary && (!ownWrite || now - ownWrite > 2_000);
+      });
+      if (externalPaths.length) void scan();
     });
+    if (generation !== watchGenerationRef.current) {
+      unwatch();
+      return;
+    }
+    unwatchRef.current = unwatch;
   }, []);
 
   const openFolderDialog = useCallback(async () => {
@@ -243,22 +362,33 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (restoredRef.current) return;
     restoredRef.current = true;
-    (async () => {
+    void (async () => {
       try {
         const raw = localStorage.getItem(SESSION_KEY);
         if (!raw) return;
-        const s = JSON.parse(raw) as {
+        const value: unknown = JSON.parse(raw);
+        if (!value || typeof value !== "object" || Array.isArray(value)) return;
+        const s = value as {
           folderRoot?: string;
           openPaths?: string[];
           activePath?: string;
         };
-        if (s.folderRoot) await openFolderRoot(s.folderRoot).catch(() => {});
-        if (s.openPaths?.length) {
-          await openPaths(s.openPaths);
-          if (s.activePath) dispatch({ t: "SELECT", path: s.activePath });
+        if (typeof s.folderRoot === "string") {
+          await openFolderRoot(s.folderRoot).catch(() => {});
+        }
+        const paths = Array.isArray(s.openPaths)
+          ? s.openPaths.filter((path): path is string => typeof path === "string")
+          : [];
+        if (paths.length) {
+          await openPaths(paths);
+          if (typeof s.activePath === "string" && paths.includes(s.activePath)) {
+            dispatch({ t: "SELECT", path: s.activePath });
+          }
         }
       } catch {
         /* ignore */
+      } finally {
+        setSessionRestored(true);
       }
     })();
   }, [openFolderRoot, openPaths]);
@@ -287,66 +417,115 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
     dispatch({ t: "OPEN_FOLDER", root: folderRoot, tree });
   }, [folderRoot]);
 
-  // 활성 마크다운 에디터의 최신값 getter (디바운스 미반영분까지 flush)
-  const editorFlushRef = useRef<{ path: string; get: () => string } | null>(
-    null,
-  );
-  const registerEditor = useCallback(
-    (path: string, get: () => string) => {
-      editorFlushRef.current = { path, get };
-    },
-    [],
-  );
-
   const save = useCallback(
     async (path: string, contentOverride?: string) => {
-      const doc = state.openDocs.find((d) => d.path === path);
-      if (!doc) return;
-      let content = contentOverride ?? doc.content;
-      // 에디터(마크다운·소스) 실시간값 우선 (Ctrl+S 가 디바운스 옛 값을 쓰는 유실 방지)
-      const fl = editorFlushRef.current;
-      if (contentOverride === undefined && fl?.path === path) {
-        try {
-          content = fl.get();
-        } catch {
-          /* ignore */
+      if (closedPathsRef.current.has(path)) return;
+      const doc = stateRef.current.openDocs.find((d) => d.path === path);
+      if (!doc || !isEditableDoc(doc.kind, doc.path)) return;
+
+      let run: () => Promise<void>;
+      if (doc.kind === "xlsx") {
+        const draft = doc.content;
+        if (!draft) return;
+        run = async () => {
+          const source = await readBinary(path);
+          const { serializeSpreadsheet } = await import("./xlsxModel");
+          const output = serializeSpreadsheet(path, source, draft);
+          ownWritesRef.current.set(path, Date.now());
+          await writeBinary(path, output);
+          dispatch({ t: "SHEET_SAVED", path, draft });
+        };
+      } else {
+        let content = contentOverride ?? doc.content;
+        // 에디터(마크다운·소스) 실시간값 우선 (Ctrl+S 가 디바운스 옛 값을 쓰는 유실 방지)
+        if (contentOverride === undefined) {
+          content = flushEditor(path) ?? content;
+        }
+        // 저장 시작 전에 flush 값을 상태에 반영한다. 저장 중 새 입력이 들어오면
+        // 그 입력이 뒤에 남아 MARK_SAVED 기준과 달라지므로 dirty가 유지된다.
+        if (content !== doc.content) {
+          dispatch({ t: "EDIT", path, content });
+        }
+        run = async () => {
+          ownWritesRef.current.set(path, Date.now());
+          await writeDoc(path, content);
+          dispatch({ t: "MARK_SAVED", path, content });
+        };
+      }
+
+      const previous = saveQueueRef.current.get(path) ?? Promise.resolve();
+      const queued = previous.catch(() => {}).then(run);
+      saveQueueRef.current.set(path, queued);
+      try {
+        await queued;
+      } finally {
+        if (saveQueueRef.current.get(path) === queued) {
+          saveQueueRef.current.delete(path);
         }
       }
-      await writeDoc(path, content);
-      // 미반영된 최신 내용을 저장한 경우 상태도 동기화
-      if (content !== doc.content) {
-        dispatch({ t: "EDIT", path, content });
-      }
-      dispatch({ t: "MARK_SAVED", path });
     },
-    [state.openDocs],
+    [flushEditor],
   );
 
-  // 미저장 변경이 있으면 닫기 전 확인
-  const close = useCallback(
-    (path: string) => {
-      const doc = state.openDocs.find((d) => d.path === path);
-      if (doc && doc.content !== doc.saved) {
-        const ok = window.confirm(
-          `저장하지 않은 변경이 있어요.\n"${doc.name}" 을(를) 저장하지 않고 닫을까요?`,
-        );
-        if (!ok) return;
+  // 이름 변경·삭제도 이 경로를 써서 autosave와 파일 조작이 경합하지 않게 한다.
+  const closePaths = useCallback(
+    (paths: string[]): boolean => {
+      const unique = [...new Set(paths)];
+      if (!unique.length) return true;
+      const saving = unique.find((path) => saveQueueRef.current.has(path));
+      if (saving) {
+        const name = stateRef.current.openDocs.find((doc) => doc.path === saving)?.name;
+        window.alert(`"${name ?? basename(saving)}" 저장이 끝난 뒤 다시 시도해 주세요.`);
+        return false;
       }
-      dispatch({ t: "CLOSE", path });
+
+      const docs = unique
+        .map((path) => stateRef.current.openDocs.find((doc) => doc.path === path))
+        .filter((doc): doc is OpenDoc => Boolean(doc));
+      const dirty = docs.filter(
+        (doc) => (flushEditor(doc.path) ?? doc.content) !== doc.saved,
+      );
+      if (
+        dirty.length &&
+        !window.confirm(
+          dirty.length === 1
+            ? `저장하지 않은 변경이 있어요.\n"${dirty[0].name}" 을(를) 저장하지 않고 닫을까요?`
+            : `저장하지 않은 문서 ${dirty.length}개를 저장하지 않고 닫을까요?`,
+        )
+      ) {
+        return false;
+      }
+
+      for (const path of unique) {
+        closedPathsRef.current.add(path);
+        dispatch({ t: "CLOSE", path });
+      }
+      return true;
     },
-    [state.openDocs],
+    [flushEditor],
   );
+
+  const close = useCallback((path: string) => closePaths([path]), [closePaths]);
 
   const closeActive = useCallback(() => {
     if (state.activePath) close(state.activePath);
   }, [state.activePath, close]);
 
+  const select = useCallback(
+    (path: string) => {
+      if (path === stateRef.current.activePath) return;
+      flushActiveEditor();
+      dispatch({ t: "SELECT", path });
+    },
+    [flushActiveEditor],
+  );
+
   const selectByIndex = useCallback(
     (i: number) => {
       const d = state.openDocs[i];
-      if (d) dispatch({ t: "SELECT", path: d.path });
+      if (d) select(d.path);
     },
-    [state.openDocs],
+    [state.openDocs, select],
   );
 
   const selectRelative = useCallback(
@@ -355,12 +534,35 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
       if (n === 0) return;
       const cur = state.openDocs.findIndex((d) => d.path === state.activePath);
       const next = ((cur < 0 ? 0 : cur) + delta + n) % n;
-      dispatch({ t: "SELECT", path: state.openDocs[next].path });
+      select(state.openDocs[next].path);
     },
-    [state.openDocs, state.activePath],
+    [state.openDocs, state.activePath, select],
   );
   const selectNext = useCallback(() => selectRelative(1), [selectRelative]);
   const selectPrev = useCallback(() => selectRelative(-1), [selectRelative]);
+
+  const setViewMode = useCallback(
+    (mode: ViewMode) => {
+      flushActiveEditor();
+      dispatch({ t: "VIEW_MODE", mode });
+    },
+    [flushActiveEditor],
+  );
+
+  const hasUnsavedChanges = useCallback(() => {
+    const current = stateRef.current;
+    const activeContent = current.activePath
+      ? flushEditor(current.activePath)
+      : undefined;
+    return current.openDocs.some(
+      (doc) =>
+        !closedPathsRef.current.has(doc.path) &&
+        (doc.path === current.activePath
+          ? activeContent ?? doc.content
+          : doc.content) !== doc.saved,
+    );
+  }, [flushEditor]);
+  const hasPendingSaves = useCallback(() => saveQueueRef.current.size > 0, []);
 
   // 자동 저장 — 편집 멈추면 1.5s 뒤 dirty 문서 저장
   useEffect(() => {
@@ -370,7 +572,13 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
     );
     if (!dirty.length) return;
     const t = setTimeout(() => {
-      dirty.forEach((d) => void save(d.path));
+      dirty.forEach((d) => {
+        void save(d.path).catch((error: unknown) => {
+          window.alert(
+            `"${d.name}" 을(를) 자동 저장하지 못했어요.\n${(error as Error).message ?? String(error)}`,
+          );
+        });
+      });
     }, 1500);
     return () => clearTimeout(t);
   }, [state.openDocs, autosaveOn, save]);
@@ -388,16 +596,19 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
       setBaseline: (path, content) =>
         dispatch({ t: "BASELINE", path, content }),
       save,
-      select: (path) => dispatch({ t: "SELECT", path }),
+      select,
       close,
+      closePaths,
       closeActive,
       selectNext,
       selectPrev,
       selectByIndex,
-      setViewMode: (mode) => dispatch({ t: "VIEW_MODE", mode }),
-      toggleScripts: () => dispatch({ t: "TOGGLE_SCRIPTS" }),
+      setViewMode,
       recentFiles,
       refreshFolder,
+      hasUnsavedChanges,
+      hasPendingSaves,
+      sessionRestored,
       registerEditor,
     }),
     [
@@ -407,13 +618,19 @@ export function DocProvider({ children }: { children: React.ReactNode }) {
       openFolderRoot,
       openPaths,
       save,
+      select,
       close,
+      closePaths,
       closeActive,
       selectNext,
       selectPrev,
       selectByIndex,
+      setViewMode,
       recentFiles,
       refreshFolder,
+      hasUnsavedChanges,
+      hasPendingSaves,
+      sessionRestored,
       registerEditor,
     ],
   );

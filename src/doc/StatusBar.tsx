@@ -1,5 +1,6 @@
 import { useDocs } from "./store";
 import { usePrefs } from "../workspace/prefs";
+import { isTextKind } from "./types";
 
 export function StatusBar() {
   const { activeDoc } = useDocs();
@@ -8,12 +9,13 @@ export function StatusBar() {
   const text = activeDoc?.content ?? "";
   const chars = text.length;
   const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+  const showTextStats = Boolean(activeDoc && isTextKind(activeDoc.kind));
 
   return (
     <div className="flex items-center justify-between border-t border-line-soft bg-bg-deep/40 px-4 py-1.5 font-mono text-[11px] text-faint">
-      <span>{activeDoc ? activeDoc.name : "—"}</span>
+      <span>{activeDoc ? activeDoc.name : "문서 없음"}</span>
       <span className="flex items-center gap-4">
-        {activeDoc && (
+        {showTextStats && (
           <span>
             {words}단어 · {chars}자
           </span>

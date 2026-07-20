@@ -24,7 +24,14 @@ export function DocxView({ path }: { path: string }) {
           inWrapper: true,
           ignoreLastRenderedPageBreak: true,
           experimental: true,
+          renderAltChunks: false,
         });
+        // 문서 관계의 위험한 URL scheme이 앱 권한 문맥에서 실행되지 않게 한다.
+        for (const link of container.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+          const href = link.getAttribute("href")?.trim() ?? "";
+          if (!href.startsWith("#")) link.removeAttribute("href");
+          link.rel = "noopener noreferrer";
+        }
         if (!cancelled) setLoading(false);
       } catch (e) {
         if (!cancelled) {

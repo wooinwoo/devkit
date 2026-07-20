@@ -28,13 +28,22 @@
 | Word | `docx` | docx-preview, 서식·표·이미지 포함 |
 | 한글 | `hwp` `hwpx` | rhwp (WASM) SVG 렌더 |
 | PDF | `pdf` | pdf.js, **텍스트 선택·복사** |
-| 스프레드시트 | `xlsx` `xls` `csv` `tsv` | 그리드(열 문자·행 번호), **셀 선택·복사**, 한글 인코딩 자동 감지 |
-| PowerPoint | `pptx` `ppt` | pptx-preview 슬라이드 |
+| 스프레드시트 | `xlsx` `xls` `csv` `tsv` | 그리드, 셀 선택·복사, **단순 xlsx 값 편집/저장**, UTF-8·EUC-KR 감지 |
+| PowerPoint | `pptx` | pptx-preview 슬라이드 |
 | 주피터 노트북 | `ipynb` | 마크다운·코드 셀 + 출력(이미지·에러 포함) |
 | 이미지 | `png` `jpg` `gif` `webp` `svg` … | **확대·팬·회전·맞춤** |
 | 영상 | `mp4` `webm` `mov` … | 재생 |
-| HTML | `html` `htm` | 샌드박스 iframe (스크립트 옵션) |
+| HTML | `html` `htm` | 스크립트를 실행하지 않는 샌드박스 iframe |
 | 텍스트·코드 | `txt` `json` `yaml` `js` `ts` `py` `rs` `sql` … | CodeMirror 6, 문법 강조, 찾기·바꾸기 |
+
+### 편집 가능 범위
+
+| 확장자 | 현재 상태 |
+|--------|-----------|
+| `md` `markdown` `html` `htm` 및 텍스트·코드 | 편집·저장 가능 |
+| `xlsx` | devkit에서 새로 만든 단순 통합문서만 셀 값 편집·저장 가능 |
+| `docx` `hwp` `hwpx` `pdf` `pptx` `ipynb` 이미지·영상 | 현재 읽기 전용 |
+| `xls` `csv` `tsv` | 현재 읽기 전용 |
 
 ## 주요 기능
 
@@ -43,7 +52,7 @@
 - 파일/폴더 열기 → 탭 + 사이드바 트리 (실제 폴더 구조 그대로)
 - 파일 검색·필터, 최근 파일, **세션 복원**(지난 폴더·탭 복원)
 - 창에 **드래그앤드롭**으로 열기
-- 컨텐츠 전용 확대/축소 (Ctrl +/-, Ctrl+마우스휠)
+- 컨텐츠 전용 확대/축소 (Ctrl/⌘ +/-, Ctrl/⌘+마우스휠)
 - 다크 / 라이트 / 시스템 테마
 - 아웃라인(목차), 사이드바 접기·드래그 폭조절, 집중 모드
 
@@ -51,7 +60,9 @@
 
 - 마크다운 seamless WYSIWYG + 소스 모드 전환, 본문 폭 조절
 - 코드/텍스트: **찾기·바꾸기(Ctrl+F)**, 문법 강조, 줄번호, 안정적 undo
-- **자동 저장** (설정에서 토글)
+- 엑셀(xlsx): 앱에서 만든 단순 통합문서의 셀 값 편집, 표 붙여넣기, 범위 복사·삭제, 수동 저장
+- 빈 폴더에서도 상단의 새 파일로 `.xlsx` 통합문서 생성
+- 텍스트 **자동 저장** (설정에서 토글)
 
 ### 파일 관리 (우클릭 컨텍스트 메뉴)
 
@@ -69,17 +80,19 @@
 
 | 동작 | 키 |
 |------|----|
-| 파일 열기 / 저장 | Ctrl+O / Ctrl+S |
-| 명령 팔레트 | Ctrl+K |
-| 찾기 (소스·코드) | Ctrl+F |
-| 탭 닫기 / 전환 / 선택 | Ctrl+W / Ctrl+Tab / Ctrl+1~9 |
-| 확대·축소 | Ctrl+± · Ctrl+마우스휠 |
-| 사이드바 접기 / 집중 모드 | Ctrl+B / F8 |
-| 설정 | Ctrl+, |
+| 파일 열기 / 저장 | Ctrl/⌘+O / Ctrl/⌘+S |
+| 명령 팔레트 | Ctrl/⌘+K |
+| 찾기 (소스·코드) | Ctrl/⌘+F |
+| 탭 닫기 / 전환 / 선택 | Ctrl/⌘+W / Ctrl/⌘+Tab / Ctrl/⌘+1~9 |
+| 확대·축소 | Ctrl/⌘+± · Ctrl/⌘+마우스휠 |
+| 사이드바 접기 / 집중 모드 | Ctrl/⌘+B / F8 |
+| 설정 | Ctrl/⌘+, |
 
 ## 자동 업데이트
 
 설치본은 GitHub Releases의 서명된 `latest.json`을 확인해 새 버전을 자동으로 받습니다. 릴리스 서명에는 CI 시크릿 `TAURI_SIGNING_PRIVATE_KEY`가 필요합니다.
+
+`main` 브랜치에 코드를 push하는 것만으로 설치된 앱은 바뀌지 않습니다. 버전을 올리고 `vX.Y.Z` 태그를 push해 GitHub Release가 공개된 뒤에 설치본과 자동 업데이트에 반영됩니다.
 
 ## 기술 스택
 
@@ -91,6 +104,7 @@ Milkdown Crepe · CodeMirror 6 · pdf.js · SheetJS · docx-preview · pptx-prev
 
 ```bash
 npm install
+npm test               # xlsx 왕복 저장 + 비신뢰 문서 안전 검사
 npm run tauri dev      # 개발 (핫리로드)
 npm run tauri build    # 로컬 빌드 (현재 OS용)
 ```
@@ -107,12 +121,12 @@ git tag v0.0.0 && git push origin v0.0.0
 
 - [ ] 이미지 붙여넣기 → 로컬 assets 저장
 - [ ] 대용량 파일 가상화 (PDF·엑셀·로그)
-- [ ] 엑셀 서식 충실도 (병합셀·서식, exceljs 전환)
+- [ ] 일반 Excel 파일의 원본 OOXML을 보존하는 편집 (서식·수식·차트)
 - [ ] 코드 서명 (SmartScreen·Gatekeeper 제거, 유료 인증서 필요)
 
 ### 한계
 
-hwp·pptx·xlsx는 오픈소스 렌더러 기반이라 복잡한 서식·차트는 원본과 다를 수 있습니다(레이아웃 근사). 데이터·기본 서식 확인 용도.
+hwp·pptx·xlsx는 오픈소스 렌더러 기반이라 복잡한 레이아웃은 원본과 다를 수 있습니다. xlsx는 원본 손실을 막기 위해 앱에서 새로 만든 단순 통합문서의 값만 편집합니다. 일반 Excel 파일과 서식·수식·차트가 있는 xlsx, `xls` `csv` `tsv`는 읽기 전용입니다. 수식 입력과 실행 취소는 아직 지원하지 않습니다.
 
 ---
 

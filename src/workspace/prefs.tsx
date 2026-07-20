@@ -49,10 +49,42 @@ export const ZOOM_MIN = 0.5;
 export const ZOOM_MAX = 2.4;
 export const ZOOM_STEP = 0.1;
 
+const clamp = (v: number, lo: number, hi: number) =>
+  Math.min(hi, Math.max(lo, v));
+
 function load(): UiPrefs {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...DEFAULTS, ...JSON.parse(raw) };
+    const value: unknown = raw ? JSON.parse(raw) : null;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return DEFAULTS;
+    const saved = value as Partial<UiPrefs>;
+    return {
+      sidebarCollapsed:
+        typeof saved.sidebarCollapsed === "boolean"
+          ? saved.sidebarCollapsed
+          : DEFAULTS.sidebarCollapsed,
+      sidebarWidth:
+        typeof saved.sidebarWidth === "number" && Number.isFinite(saved.sidebarWidth)
+          ? clamp(saved.sidebarWidth, SIDEBAR_MIN, SIDEBAR_MAX)
+          : DEFAULTS.sidebarWidth,
+      sidebarTab: saved.sidebarTab === "outline" ? "outline" : "files",
+      zoom:
+        typeof saved.zoom === "number" && Number.isFinite(saved.zoom)
+          ? clamp(saved.zoom, ZOOM_MIN, ZOOM_MAX)
+          : DEFAULTS.zoom,
+      docWidth: ["narrow", "normal", "wide", "full"].includes(saved.docWidth ?? "")
+        ? saved.docWidth as DocWidth
+        : DEFAULTS.docWidth,
+      focus: typeof saved.focus === "boolean" ? saved.focus : DEFAULTS.focus,
+      collapsedDirs: Array.isArray(saved.collapsedDirs)
+        ? saved.collapsedDirs.filter((path): path is string => typeof path === "string")
+        : [],
+      theme: ["light", "dark", "system"].includes(saved.theme ?? "")
+        ? saved.theme as Theme
+        : DEFAULTS.theme,
+      autosave:
+        typeof saved.autosave === "boolean" ? saved.autosave : DEFAULTS.autosave,
+    };
   } catch {
     /* ignore */
   }
@@ -70,9 +102,6 @@ interface PrefsCtx extends UiPrefs {
 }
 
 const Ctx = createContext<PrefsCtx | null>(null);
-
-const clamp = (v: number, lo: number, hi: number) =>
-  Math.min(hi, Math.max(lo, v));
 
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [prefs, setPrefs] = useState<UiPrefs>(load);

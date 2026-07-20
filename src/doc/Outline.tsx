@@ -5,6 +5,7 @@ interface Heading {
   level: number;
   text: string;
   id: string;
+  index: number;
 }
 
 /** 마크다운 원문에서 헤딩만 추출 (코드펜스 안 제외) */
@@ -21,7 +22,7 @@ function parseHeadings(md: string): Heading[] {
     if (inFence) continue;
     const m = /^(#{1,6})\s+(.*)$/.exec(line);
     if (m) {
-      out.push({ level: m[1].length, text: m[2].trim(), id: `h-${i}` });
+      out.push({ level: m[1].length, text: m[2].trim(), id: `h-${i}`, index: i });
       i++;
     }
   }
@@ -29,7 +30,7 @@ function parseHeadings(md: string): Heading[] {
 }
 
 export function Outline() {
-  const { activeDoc } = useDocs();
+  const { activeDoc, viewMode } = useDocs();
   const headings = useMemo(
     () =>
       activeDoc?.kind === "markdown"
@@ -42,6 +43,9 @@ export function Outline() {
     return (
       <p className="px-2 py-3 text-xs text-faint">문서를 열면 목차가 여기 떠요.</p>
     );
+  }
+  if (activeDoc.kind === "markdown" && viewMode === "source") {
+    return <p className="px-2 py-3 text-xs text-faint">문서 보기에서 목차를 이동할 수 있어요.</p>;
   }
   if (headings.length === 0) {
     return <p className="px-2 py-3 text-xs text-faint">제목이 없는 문서예요.</p>;
@@ -61,12 +65,12 @@ export function Outline() {
                 const nodes = document.querySelectorAll(
                   ".milkdown h1, .milkdown h2, .milkdown h3, .milkdown h4, .milkdown h5, .milkdown h6",
                 );
-                for (const n of nodes) {
-                  if (n.textContent?.trim() === h.text) {
-                    n.scrollIntoView({ behavior: "smooth", block: "start" });
-                    break;
-                  }
-                }
+                nodes[h.index]?.scrollIntoView({
+                  behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                    ? "auto"
+                    : "smooth",
+                  block: "start",
+                });
               }}
               className="block w-full truncate rounded px-2 py-1 text-left text-[13px] text-text transition-colors hover:bg-surface hover:text-fg"
               style={{ paddingLeft: `${(h.level - min) * 12 + 8}px` }}

@@ -1,10 +1,11 @@
+use std::io::Write;
 use std::path::Path;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 
 /// cold start 때 넘어온 파일 경로 보관 (프론트가 아직 안 떠 있을 때 대비).
 #[derive(Default)]
-struct OpenedFile(Mutex<Option<String>>);
+struct OpenedFiles(Mutex<Vec<String>>);
 
 const IMG_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
 const VID_EXTS: &[&str] = &["mp4", "webm", "ogv", "mov", "m4v"];
@@ -27,7 +28,7 @@ fn doc_kind(name: &str) -> Option<&'static str> {
         "ipynb" => Some("ipynb"),
         "pdf" => Some("pdf"),
         "xlsx" | "xls" | "csv" | "tsv" => Some("xlsx"),
-        "pptx" | "ppt" => Some("pptx"),
+        "pptx" => Some("pptx"),
         _ if IMG_EXTS.contains(&e.as_str()) => Some("image"),
         _ if VID_EXTS.contains(&e.as_str()) => Some("video"),
         _ if TXT_EXTS.contains(&e.as_str()) => Some("text"),
@@ -40,11 +41,12 @@ fn is_doc(name: &str) -> bool {
 }
 
 /// argv 에서 문서 파일 경로만 골라냄 (실행파일 경로·플래그 제외).
-fn extract_file_arg(args: &[String]) -> Option<String> {
+fn extract_file_args(args: &[String]) -> Vec<String> {
     args.iter()
         .skip(1)
-        .find(|a| !a.starts_with('-') && is_doc(a))
+        .filter(|a| !a.starts_with('-') && is_doc(a))
         .cloned()
+        .collect()
 }
 
 #[derive(serde::Serialize)]
@@ -114,6 +116,37 @@ fn list_docs(root: String) -> Vec<TreeNode> {
     walk(Path::new(&root), 0)
 }
 
+#[tauri::command]
+fn is_dir(path: String) -> bool {
+    Path::new(&path).is_dir()
+}
+
+/// 같은 디렉터리에 완전히 쓴 뒤 교체해 실패 시 기존 원본을 보존한다.
+fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if std::fs::symlink_metadata(path)
+        .map(|meta| meta.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err("심볼릭 링크 파일은 안전을 위해 저장하지 않아요".into());
+    }
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let permissions = std::fs::metadata(path).ok().map(|meta| meta.permissions());
+    let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+    temp.write_all(bytes).map_err(|e| e.to_string())?;
+    if let Some(permissions) = permissions {
+        temp.as_file()
+            .set_permissions(permissions)
+            .map_err(|e| e.to_string())?;
+    }
+    temp.as_file().sync_all().map_err(|e| e.to_string())?;
+    temp.persist(path).map_err(|e| e.error.to_string())?;
+    #[cfg(unix)]
+    if let Ok(dir) = std::fs::File::open(parent) {
+        let _ = dir.sync_all();
+    }
+    Ok(())
+}
+
 /// 임의 절대경로 읽기 (파일연결로 온 경로도 scope 제약 없이).
 #[tauri::command]
 fn read_file(path: String) -> Result<String, String> {
@@ -123,19 +156,59 @@ fn read_file(path: String) -> Result<String, String> {
 /// 원본 경로에 저장.
 #[tauri::command]
 fn save_file(path: String, content: String) -> Result<(), String> {
-    std::fs::write(&path, content).map_err(|e| e.to_string())
+    atomic_write(Path::new(&path), content.as_bytes())
 }
 
 /// 바이너리 파일 바이트 읽기 (hwp 등 — 프론트에서 Uint8Array 로 처리).
 #[tauri::command]
-fn read_binary(path: String) -> Result<Vec<u8>, String> {
-    std::fs::read(&path).map_err(|e| e.to_string())
+fn read_binary(path: String) -> Result<tauri::ipc::Response, String> {
+    std::fs::read(&path)
+        .map(tauri::ipc::Response::new)
+        .map_err(|e| e.to_string())
 }
 
-/// 바이너리 저장 (이미지 붙여넣기 등).
+fn percent_decode(input: &str) -> Result<String, String> {
+    fn hex(byte: u8) -> Option<u8> {
+        match byte {
+            b'0'..=b'9' => Some(byte - b'0'),
+            b'a'..=b'f' => Some(byte - b'a' + 10),
+            b'A'..=b'F' => Some(byte - b'A' + 10),
+            _ => None,
+        }
+    }
+    let source = input.as_bytes();
+    let mut output = Vec::with_capacity(source.len());
+    let mut index = 0;
+    while index < source.len() {
+        if source[index] == b'%' {
+            let high = source.get(index + 1).and_then(|byte| hex(*byte));
+            let low = source.get(index + 2).and_then(|byte| hex(*byte));
+            let (Some(high), Some(low)) = (high, low) else {
+                return Err("바이너리 저장 경로가 올바르지 않아요".into());
+            };
+            output.push(high * 16 + low);
+            index += 3;
+        } else {
+            output.push(source[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(output).map_err(|_| "바이너리 저장 경로가 올바르지 않아요".into())
+}
+
+/// 바이너리 저장. raw IPC body를 써서 대용량 number[] JSON 변환을 피한다.
 #[tauri::command]
-fn write_binary(path: String, bytes: Vec<u8>) -> Result<(), String> {
-    std::fs::write(&path, bytes).map_err(|e| e.to_string())
+fn write_binary(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let encoded_path = request
+        .headers()
+        .get("x-devkit-path")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| "바이너리 저장 경로가 없어요".to_string())?;
+    let path = percent_decode(encoded_path)?;
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("바이너리 저장 데이터가 올바르지 않아요".into());
+    };
+    atomic_write(Path::new(&path), bytes)
 }
 
 /// 파일·폴더 이름 변경/이동.
@@ -156,6 +229,22 @@ fn create_file(path: String) -> Result<(), String> {
     std::fs::write(&path, "").map_err(|e| e.to_string())
 }
 
+/// 새 바이너리 파일을 원자적으로 생성한다. 기존 파일은 절대 덮어쓰지 않는다.
+#[tauri::command]
+fn create_binary_file(path: String, bytes: Vec<u8>) -> Result<(), String> {
+    let path = Path::new(&path);
+    if path.exists() {
+        return Err("이미 있는 파일이에요".into());
+    }
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+    temp.write_all(&bytes).map_err(|e| e.to_string())?;
+    temp.as_file().sync_all().map_err(|e| e.to_string())?;
+    temp.persist_noclobber(path)
+        .map_err(|e| e.error.to_string())?;
+    Ok(())
+}
+
 /// 폴더 생성.
 #[tauri::command]
 fn create_dir(path: String) -> Result<(), String> {
@@ -170,8 +259,8 @@ fn delete_path(path: String) -> Result<(), String> {
 
 /// 프론트가 최초 실행 시 조회: cold start 로 넘어온 파일 경로.
 #[tauri::command]
-fn get_opened_file(app: tauri::AppHandle) -> Option<String> {
-    app.state::<OpenedFile>().0.lock().unwrap().clone()
+fn get_opened_files(app: tauri::AppHandle) -> Vec<String> {
+    app.state::<OpenedFiles>().0.lock().unwrap().clone()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -185,8 +274,9 @@ pub fn run() {
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.set_focus();
             }
-            if let Some(path) = extract_file_arg(&argv) {
-                let _ = app.emit("opened-file", path);
+            let paths = extract_file_args(&argv);
+            if !paths.is_empty() {
+                let _ = app.emit("opened-files", paths);
             }
         }));
         // 창 크기·위치 기억 (종료 시 저장, 실행 시 복원)
@@ -200,34 +290,27 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
-        .manage(OpenedFile::default())
+        .manage(OpenedFiles::default())
         .invoke_handler(tauri::generate_handler![
             list_docs,
+            is_dir,
             read_file,
             read_binary,
             write_binary,
             save_file,
             rename_path,
             create_file,
+            create_binary_file,
             create_dir,
             delete_path,
-            get_opened_file
+            get_opened_files
         ])
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
             // Windows/Linux cold start: argv 에서 파일 경로 확보.
             #[cfg(desktop)]
             {
                 let args: Vec<String> = std::env::args().collect();
-                if let Some(path) = extract_file_arg(&args) {
-                    *app.state::<OpenedFile>().0.lock().unwrap() = Some(path);
-                }
+                *app.state::<OpenedFiles>().0.lock().unwrap() = extract_file_args(&args);
             }
             Ok(())
         })
@@ -237,13 +320,78 @@ pub fn run() {
             // macOS/iOS: 파일 열기는 RunEvent::Opened 로 온다.
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             if let tauri::RunEvent::Opened { urls } = _event {
-                for url in &urls {
-                    if let Ok(path) = url.to_file_path() {
-                        let p = path.to_string_lossy().to_string();
-                        *_app.state::<OpenedFile>().0.lock().unwrap() = Some(p.clone());
-                        let _ = _app.emit("opened-file", p);
-                    }
+                let paths: Vec<String> = urls
+                    .iter()
+                    .filter_map(|url| url.to_file_path().ok())
+                    .map(|path| path.to_string_lossy().to_string())
+                    .filter(|path| is_doc(path))
+                    .collect();
+                if !paths.is_empty() {
+                    _app.state::<OpenedFiles>().0.lock().unwrap().extend(paths.clone());
+                    let _ = _app.emit("opened-files", paths);
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{atomic_write, create_binary_file, extract_file_args, percent_decode};
+
+    #[test]
+    fn decodes_unicode_binary_path() {
+        assert_eq!(
+            percent_decode("%2Ftmp%2F%ED%91%9C.xlsx").unwrap(),
+            "/tmp/표.xlsx"
+        );
+        assert!(percent_decode("%xx").is_err());
+    }
+
+    #[test]
+    fn extracts_all_supported_file_args() {
+        let args = ["devkit", "--flag", "a.md", "b.pdf", "ignored.exe"]
+            .map(String::from);
+        assert_eq!(extract_file_args(&args), ["a.md", "b.pdf"]);
+    }
+
+    #[test]
+    fn creates_binary_without_overwriting() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("new.xlsx");
+        let path = path.to_string_lossy().to_string();
+
+        create_binary_file(path.clone(), b"workbook".to_vec()).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"workbook");
+        assert!(create_binary_file(path, b"replacement".to_vec()).is_err());
+    }
+
+    #[test]
+    fn atomic_write_replaces_complete_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample.xlsx");
+        std::fs::write(&path, b"old").unwrap();
+
+        atomic_write(&path, b"complete workbook").unwrap();
+
+        assert_eq!(std::fs::read(path).unwrap(), b"complete workbook");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_rejects_symlink_without_changing_target() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target.xlsx");
+        let link = dir.path().join("sample.xlsx");
+        std::fs::write(&target, b"original").unwrap();
+        symlink(&target, &link).unwrap();
+
+        assert!(atomic_write(&link, b"replacement").is_err());
+        assert_eq!(std::fs::read(target).unwrap(), b"original");
+        assert!(std::fs::symlink_metadata(link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
 }

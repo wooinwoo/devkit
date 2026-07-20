@@ -56,7 +56,11 @@ function langFor(path: string): Extension {
 
 // devkit 라이트 톤에 맞춘 최소 테마
 const theme = EditorView.theme({
-  "&": { height: "100%", backgroundColor: "transparent", fontSize: "13px" },
+  "&": {
+    height: "100%",
+    backgroundColor: "transparent",
+    fontSize: "calc(13px * var(--source-zoom, 1))",
+  },
   ".cm-scroller": {
     fontFamily: "var(--font-mono)",
     lineHeight: "1.6",
@@ -81,14 +85,16 @@ export function SourceEditor({
   docKey,
   path,
   value,
+  zoom = 1,
   onChange,
   registerFlush,
 }: {
   docKey: string; // 파일 바뀌면 리마운트
   path: string;
   value: string;
+  zoom?: number;
   onChange: (v: string) => void;
-  registerFlush?: (get: () => string) => void;
+  registerFlush?: (get: () => string) => void | (() => void);
 }) {
   const host = useRef<HTMLDivElement>(null);
   const onChangeRef = useRef(onChange);
@@ -113,20 +119,33 @@ export function SourceEditor({
             if (!u.docChanged) return;
             const v = u.state.doc.toString();
             clearTimeout(timer);
-            timer = setTimeout(() => onChangeRef.current(v), 250);
+            timer = setTimeout(() => {
+              timer = undefined;
+              onChangeRef.current(v);
+            }, 250);
           }),
         ],
       }),
     });
     // 저장 시 디바운스 미반영분까지 flush 하도록 최신값 getter 등록
-    registerRef.current?.(() => view.state.doc.toString());
+    const unregister = registerRef.current?.(() => view.state.doc.toString());
     return () => {
-      clearTimeout(timer);
+      if (timer) {
+        clearTimeout(timer);
+        onChangeRef.current(view.state.doc.toString());
+      }
+      unregister?.();
       view.destroy();
     };
     // docKey 바뀌면 리마운트해 새 파일 로드
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docKey]);
 
-  return <div ref={host} className="h-full" />;
+  return (
+    <div
+      ref={host}
+      className="h-full"
+      style={{ ["--source-zoom" as string]: zoom }}
+    />
+  );
 }

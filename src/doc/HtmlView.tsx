@@ -1,17 +1,15 @@
-/** HTML 문서를 샌드박스 iframe 에 렌더. 스크립트는 옵션으로만 허용. */
+/** HTML 문서를 스크립트 권한 없는 샌드박스 iframe에 렌더. */
 export function HtmlView({
   content,
-  allowScripts,
 }: {
   content: string;
-  allowScripts: boolean;
 }) {
   return (
     <iframe
       title="HTML 미리보기"
       srcDoc={content}
-      sandbox={allowScripts ? "allow-scripts" : ""}
-      className="size-full border-0 bg-white"
+      sandbox=""
+      className="size-full border-0 bg-bg"
     />
   );
 }

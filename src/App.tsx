@@ -7,14 +7,15 @@ import { Sidebar } from "./doc/Sidebar";
 import { StatusBar } from "./doc/StatusBar";
 import { TabBar } from "./doc/TabBar";
 import { UpdateBanner } from "./doc/UpdateBanner";
-import { startupFile } from "./doc/fs";
-import { kindOf } from "./doc/types";
+import { isDirectory, isTauri, startupFiles } from "./doc/fs";
+import { isEditableDoc, kindOf } from "./doc/types";
 import { DocProvider, useDocs } from "./doc/store";
 import { WorkspaceProvider, usePrefs } from "./workspace/prefs";
 
 function Shell() {
   const {
     openPaths,
+    openFilesDialog,
     openFolderRoot,
     save,
     activeDoc,
@@ -22,6 +23,9 @@ function Shell() {
     selectNext,
     selectPrev,
     selectByIndex,
+    hasUnsavedChanges,
+    hasPendingSaves,
+    sessionRestored,
   } = useDocs();
   const prefs = usePrefs();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -45,7 +49,12 @@ function Shell() {
           const files = paths.filter((p) => kindOf(p));
           if (files.length) void openPaths(files);
           // 열 수 있는 파일이 없으면 첫 경로를 폴더로 시도
-          else if (paths[0]) void openFolderRoot(paths[0]).catch(() => {});
+          else if (paths[0]) {
+            void isDirectory(paths[0]).then((directory) => {
+              if (directory) return openFolderRoot(paths[0]);
+              window.alert("devkit에서 열 수 없는 파일 형식이에요.");
+            }).catch(() => {});
+          }
         }),
       )
       .then((u) => {
@@ -58,30 +67,67 @@ function Shell() {
   // OS 파일 연결: cold start argv + warm start emit
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    startupFile()
-      .then((p) => {
-        if (p) void openPaths([p]);
-      })
-      .catch(() => {});
-    listen<string>("opened-file", (e) => {
-      void openPaths([e.payload]);
+    if (sessionRestored) {
+      startupFiles()
+        .then((paths) => {
+          if (paths.length) void openPaths(paths);
+        })
+        .catch(() => {});
+    }
+    listen<string[]>("opened-files", (e) => {
+      void openPaths(e.payload);
     })
       .then((u) => {
         unlisten = u;
       })
       .catch(() => {});
     // 개발용: 브라우저에서 ?open=/samples/a.md,/samples/b.csv 로 뷰어 검증
-    if (import.meta.env.DEV) {
+    if (sessionRestored && import.meta.env.DEV) {
       const q = new URLSearchParams(location.search).get("open");
       if (q) void openPaths(q.split(",").filter(Boolean));
     }
     return () => unlisten?.();
-  }, [openPaths]);
+  }, [openPaths, sessionRestored]);
+
+  // 브라우저 새로고침과 데스크톱 창 닫기 모두 최신 에디터 값을 확인한다.
+  useEffect(() => {
+    const message = "저장하지 않은 변경이 있어요. 앱을 닫을까요?";
+    if (!isTauri) {
+      const beforeUnload = (event: BeforeUnloadEvent) => {
+        if (!hasUnsavedChanges() && !hasPendingSaves()) return;
+        event.preventDefault();
+        event.returnValue = "";
+      };
+      window.addEventListener("beforeunload", beforeUnload);
+      return () => window.removeEventListener("beforeunload", beforeUnload);
+    }
+
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/window")
+      .then(({ getCurrentWindow }) =>
+        getCurrentWindow().onCloseRequested((event) => {
+          if (hasPendingSaves()) {
+            event.preventDefault();
+            window.alert("저장이 끝난 뒤 앱을 닫아 주세요.");
+            return;
+          }
+          if (hasUnsavedChanges() && !window.confirm(message)) {
+            event.preventDefault();
+          }
+        }),
+      )
+      .then((stop) => {
+        unlisten = stop;
+      })
+      .catch(() => {});
+    return () => unlisten?.();
+  }, [hasPendingSaves, hasUnsavedChanges]);
 
   // 전역 단축키: 줌(Ctrl +/-/0), 저장(Ctrl+S), 사이드바(Ctrl+B), 집중(F8)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
+      if (settingsOpen || paletteOpen) return;
       if (mod && (e.key === "=" || e.key === "+")) {
         e.preventDefault();
         prefs.zoomIn();
@@ -93,7 +139,17 @@ function Shell() {
         prefs.zoomReset();
       } else if (mod && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        if (activeDoc) void save(activeDoc.path);
+        if (
+          activeDoc &&
+          isEditableDoc(activeDoc.kind, activeDoc.path)
+        ) {
+          void save(activeDoc.path).catch((error: unknown) => {
+            window.alert(`저장하지 못했어요.\n${(error as Error).message ?? String(error)}`);
+          });
+        }
+      } else if (mod && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        void openFilesDialog();
       } else if (mod && e.key.toLowerCase() === "b") {
         e.preventDefault();
         prefs.toggleSidebar();
@@ -124,10 +180,13 @@ function Shell() {
     prefs,
     activeDoc,
     save,
+    openFilesDialog,
     closeActive,
     selectNext,
     selectPrev,
     selectByIndex,
+    settingsOpen,
+    paletteOpen,
   ]);
 
   const showChrome = !prefs.focus;

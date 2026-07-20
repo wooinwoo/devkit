@@ -1,5 +1,6 @@
 import { Crepe } from "@milkdown/crepe";
 import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
+import { useEffect, useRef } from "react";
 import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/frame.css";
 
@@ -9,9 +10,20 @@ function Inner({
   onChange,
 }: {
   defaultValue: string;
-  onReady: (crepe: Crepe) => void;
+  onReady: (crepe: Crepe) => void | (() => void);
   onChange: (md: string) => void;
 }) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const cleanupRef = useRef<(() => void) | undefined>(undefined);
+  useEffect(
+    () => () => {
+      clearTimeout(timerRef.current);
+      clearTimeout(focusTimerRef.current);
+      cleanupRef.current?.();
+    },
+    [],
+  );
   useEditor((root) => {
     const crepe = new Crepe({
       root,
@@ -22,16 +34,15 @@ function Inner({
       featureConfigs: { [Crepe.Feature.Cursor]: { virtual: false } },
     });
     // 매 키 입력마다 store 갱신·리렌더하면 렉 → 디바운스
-    let timer: ReturnType<typeof setTimeout> | undefined;
     crepe.on((listener) => {
       listener.markdownUpdated((_ctx, md) => {
-        clearTimeout(timer);
-        timer = setTimeout(() => onChange(md), 250);
+        clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => onChange(md), 250);
       });
     });
-    onReady(crepe);
+    cleanupRef.current = onReady(crepe) ?? undefined;
     // 문서 열자마자 캐럿이 보이도록 포커스 (생성 완료 후, DOM 기반이라 ctx 불필요)
-    setTimeout(() => {
+    focusTimerRef.current = setTimeout(() => {
       (root.querySelector(".ProseMirror") as HTMLElement | null)?.focus();
     }, 80);
     return crepe;
@@ -48,7 +59,7 @@ export function MarkdownEditor({
 }: {
   docKey: string; // 파일 바뀌면 리마운트
   defaultValue: string;
-  onReady: (crepe: Crepe) => void;
+  onReady: (crepe: Crepe) => void | (() => void);
   onChange: (md: string) => void;
 }) {
   return (

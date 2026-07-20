@@ -46,7 +46,7 @@ export function TabBar() {
               type="button"
               onClick={() => close(d.path)}
               aria-label={`${d.name} 닫기`}
-              className="flex size-5 items-center justify-center rounded text-faint opacity-0 transition-opacity hover:bg-surface hover:text-fg group-hover:opacity-100"
+              className="flex size-5 items-center justify-center rounded text-faint opacity-0 transition-opacity hover:bg-surface hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
             >
               ×
             </button>

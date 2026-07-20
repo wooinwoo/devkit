@@ -27,6 +27,11 @@ interface Notebook {
 
 const src = (s: string | string[]) => (Array.isArray(s) ? s.join("") : s ?? "");
 
+const sandboxHtml = (html: string) => `<!doctype html><html><head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'">
+<style>body{margin:0;padding:.75rem;font:13px system-ui,sans-serif;color:CanvasText;background:Canvas}table{border-collapse:collapse}th,td{border:1px solid ButtonBorder;padding:.25rem .5rem}img{max-width:100%}</style>
+</head><body>${html}</body></html>`;
+
 function CodeCell({ code, lang, n }: { code: string; lang: string; n?: number | null }) {
   let html = "";
   try {
@@ -73,11 +78,13 @@ function OutputView({ out }: { out: Output }) {
   const htmlOut = data["text/html"] as string | string[] | undefined;
   if (htmlOut) {
     return (
-      <div
-        className="px-3 text-[12.5px]"
-        // 노트북 셀 출력 HTML (로컬 파일, 신뢰 소스)
-        // eslint-disable-next-line react/no-danger
-        dangerouslySetInnerHTML={{ __html: src(htmlOut) }}
+      <iframe
+        title="노트북 HTML 출력"
+        srcDoc={sandboxHtml(src(htmlOut))}
+        sandbox=""
+        referrerPolicy="no-referrer"
+        loading="lazy"
+        className="mx-3 h-48 w-[calc(100%-1.5rem)] rounded border border-line-soft bg-bg"
       />
     );
   }

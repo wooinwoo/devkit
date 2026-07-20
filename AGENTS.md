@@ -34,6 +34,7 @@ cd src-tauri && cargo check      # Rust 컴파일
 
 - `src/doc/types.ts` — `DocKind`, `kindOf(path)`, `ALL_EXTS`, `isTextKind`. **새 포맷 추가 시 여기 + `lib.rs` doc_kind 둘 다 수정.**
 - `src/doc/DocViewer.tsx` — `doc.kind` → 뷰어 라우팅. `ownsScroll`(자체 스크롤·확대: pdf/xlsx/image/source) 은 전역 zoom 래퍼 밖, 나머지(flow)는 스크롤+zoom 래퍼 안.
+- `src/doc/xlsxModel.ts` — xlsx 값 패치·안전 판별·직렬화. 원본 서식 손실 가능성이 있으면 읽기 전용으로 막으며, 저장 gate를 우회하지 말 것.
 - 뷰어: `MarkdownEditor`(Milkdown Crepe), `SourceEditor`(CodeMirror 6), `PdfView`(pdf.js + textLayer), `XlsxView`(SheetJS 그리드+셀선택), `DocxView`(docx-preview), `IpynbView`, `HwpView`(rhwp WASM), `PptxView`, `MediaView`(image/video), `HtmlView`.
 
 ### UI
@@ -57,14 +58,15 @@ cd src-tauri && cargo check      # Rust 컴파일
 
 ## 릴리스 (버전 올리기)
 
-1. 버전 3곳 동기화: `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`.
+1. 버전 4곳 동기화: `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`.
 2. `cd src-tauri && cargo check` 로 `Cargo.lock` 갱신.
 3. 커밋 → `git push origin main`.
 4. `git tag vX.Y.Z && git push origin vX.Y.Z` → GitHub Actions 가 Windows·macOS·Linux 인스톨러 빌드 + **서명** + `latest.json` 업로드.
 
 ```bash
 # 버전 일괄 변경 예
-sed -i 's/"version": "0.16.0"/"version": "0.17.0"/' package.json src-tauri/tauri.conf.json
+npm version 0.17.0 --no-git-tag-version
+sed -i 's/"version": "0.16.0"/"version": "0.17.0"/' src-tauri/tauri.conf.json
 sed -i 's/^version = "0.16.0"/version = "0.17.0"/' src-tauri/Cargo.toml
 ```
 
@@ -77,6 +79,8 @@ sed -i 's/^version = "0.16.0"/version = "0.17.0"/' src-tauri/Cargo.toml
 ## 테스트 (프론트 검증)
 
 - `npm run dev` + Playwright MCP 로 실제 렌더 확인.
+- xlsx 편집 모델을 바꿨으면 `npm test` 왕복 저장 검사도 통과시킨다.
+- `npm test` 는 IPYNB HTML sandbox, DOCX altChunk·링크, Tauri CSP 회귀도 확인한다.
 - **`?open=/samples/x` 는 DEV 전용 훅**(App.tsx). 브라우저에서 `http://localhost:5173/?open=/samples/a.md` 로 파일 오픈. `fs.ts` 가 fetch 폴백.
 - 임시 샘플은 `public/samples/` 에 만들고 **검증 후 삭제**(릴리스에 포함 금지).
 - Tauri 전용(invoke: 폴더 스캔·파일 조작·자동저장 쓰기)은 브라우저에서 안 됨 → `cargo check` + 로직 리뷰로 검증, 실동작은 앱에서.
@@ -89,6 +93,8 @@ sed -i 's/^version = "0.16.0"/version = "0.17.0"/' src-tauri/Cargo.toml
 - **CSS `zoom` 컨텐츠 확대**: 스크롤 컨테이너 자체가 아니라 그 안의 컨텐츠에 zoom 적용해야 스크롤이 안 깨진다. 자체 스크롤 뷰어는 `ownsScroll` 로 zoom 래퍼 밖에 둔다.
 - **마크다운 커서**: `featureConfigs: { [Crepe.Feature.Cursor]: { virtual: false } }`. 가상 커서 + CSS zoom 이면 캐럿이 사라진다.
 - **저장 유실 방지**: 에디터는 `registerEditor(path, getLatest)` 등록, `save()` 가 그 최신값을 쓴다 (디바운스 옛 값으로 저장하는 유실 차단).
+- **비신뢰 문서 격리**: IPYNB HTML은 빈 sandbox iframe, DOCX altChunk는 비활성화. `tauri.conf.json` CSP를 `null`로 되돌리지 말 것.
+- **xlsx 편집 범위**: 앱이 만든 단순 통합문서만 값 편집. 일반 Excel 파일의 gate를 넓히면 SheetJS 재직렬화로 서식·수식·차트가 손실될 수 있다.
 - **버전 표시**: 사이드바 푸터는 런타임 `getVersion()`(Tauri) + `__APP_VERSION__`(vite define, package.json) 폴백.
 - **임시 파일**은 스크래치패드에. 레포에 남기지 말 것.
 

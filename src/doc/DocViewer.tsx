@@ -2,9 +2,8 @@ import { Suspense, lazy, useEffect, useRef } from "react";
 import { EmptyState } from "./EmptyState";
 import { HtmlView } from "./HtmlView";
 import { ImageView, VideoView } from "./MediaView";
-import { SourceEditor } from "./SourceEditor";
 import { useDocs } from "./store";
-import { isTextKind } from "./types";
+import { isEditableDoc } from "./types";
 import {
   DOC_WIDTH_CSS,
   type DocWidth,
@@ -14,6 +13,9 @@ import {
 // 무거운 뷰어는 열 때만 로드 (초기 번들·시작 속도 개선)
 const MarkdownEditor = lazy(() =>
   import("./MarkdownEditor").then((m) => ({ default: m.MarkdownEditor })),
+);
+const SourceEditor = lazy(() =>
+  import("./SourceEditor").then((m) => ({ default: m.SourceEditor })),
 );
 const HwpView = lazy(() =>
   import("./HwpView").then((m) => ({ default: m.HwpView })),
@@ -101,8 +103,6 @@ export function DocViewer() {
     setBaseline,
     save,
     registerEditor,
-    htmlAllowScripts,
-    toggleScripts,
   } = useDocs();
   const { zoom, docWidth, zoomIn, zoomOut } = usePrefs();
   const contentRef = useRef<HTMLDivElement>(null);
@@ -127,20 +127,20 @@ export function DocViewer() {
 
   if (doc.status === "loading") {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-faint">
+      <div role="status" className="flex h-full items-center justify-center text-sm text-faint">
         불러오는 중…
       </div>
     );
   }
   if (doc.status === "error") {
     return (
-      <div className="flex h-full items-center justify-center px-6 text-center text-sm text-rose">
+      <div role="alert" className="flex h-full items-center justify-center px-6 text-center text-sm text-rose">
         열지 못했어요: {doc.error}
       </div>
     );
   }
 
-  const canEdit = isTextKind(doc.kind);
+  const canEdit = isEditableDoc(doc.kind, doc.path);
   const showToggle = doc.kind === "markdown" || doc.kind === "html";
   const showWidth = doc.kind === "markdown" && viewMode === "rich";
   const dirty = doc.content !== doc.saved;
@@ -151,6 +151,7 @@ export function DocViewer() {
         docKey={`${doc.path}:source`}
         path={doc.path}
         value={doc.content}
+        zoom={zoom}
         onChange={(v) => edit(doc.path, v)}
         registerFlush={(get) => registerEditor(doc.path, get)}
       />
@@ -173,9 +174,18 @@ export function DocViewer() {
   if (doc.kind === "pdf") {
     raw = <PdfView path={doc.path} zoom={zoom} />;
   } else if (doc.kind === "xlsx") {
-    raw = <XlsxView path={doc.path} zoom={zoom} />;
+    raw = (
+      <XlsxView
+        key={doc.path}
+        path={doc.path}
+        zoom={zoom}
+        editable={canEdit}
+        draft={doc.content}
+        onChange={(next) => edit(doc.path, next)}
+      />
+    );
   } else if (doc.kind === "image") {
-    raw = <ImageView path={doc.path} />; // 자체 줌·팬·회전
+    raw = <ImageView path={doc.path} />; // 전역 줌과 연결된 팬·회전
   } else if (doc.kind === "video") {
     flow = (
       <div className="min-h-0 flex-1">
@@ -218,14 +228,18 @@ export function DocViewer() {
           defaultValue={doc.content}
           onChange={(md) => edit(doc.path, md)}
           onReady={(c) => {
-            registerEditor(doc.path, () => c.getMarkdown());
-            requestAnimationFrame(() => {
+            const unregister = registerEditor(doc.path, () => c.getMarkdown());
+            const frame = requestAnimationFrame(() => {
               try {
                 setBaseline(doc.path, c.getMarkdown());
               } catch {
                 /* ignore */
               }
             });
+            return () => {
+              cancelAnimationFrame(frame);
+              unregister();
+            };
           }}
         />
       </div>
@@ -233,7 +247,7 @@ export function DocViewer() {
   } else {
     flow = (
       <div className="min-h-0 flex-1">
-        <HtmlView content={doc.content} allowScripts={htmlAllowScripts} />
+        <HtmlView content={doc.content} />
       </div>
     );
   }
@@ -247,25 +261,20 @@ export function DocViewer() {
           {canEdit && dirty && <span className="text-faint">· 저장 안 됨</span>}
         </span>
         <div className="flex items-center gap-2.5">
-          {doc.kind === "html" && viewMode === "rich" && (
-            <label className="flex cursor-pointer items-center gap-1.5 font-mono text-xs text-muted">
-              <input
-                type="checkbox"
-                checked={htmlAllowScripts}
-                onChange={toggleScripts}
-                className="accent-accent"
-              />
-              스크립트
-            </label>
-          )}
           {showWidth && <WidthControl />}
           {showToggle && <Segmented />}
           {canEdit && (
             <button
               type="button"
-              onClick={() => void save(doc.path)}
-              disabled={!dirty}
-              className="rounded-full border border-line-strong px-3.5 py-1 font-mono text-xs font-semibold text-fg transition-colors enabled:hover:border-fg disabled:opacity-35"
+              disabled={doc.kind === "xlsx" && !dirty}
+              onClick={() => {
+                void save(doc.path).catch((error: unknown) => {
+                  window.alert(
+                    `저장하지 못했어요.\n${(error as Error).message ?? String(error)}`,
+                  );
+                });
+              }}
+              className="rounded-full border border-line-strong px-3.5 py-1 font-mono text-xs font-semibold text-fg transition-colors hover:border-fg disabled:cursor-not-allowed disabled:opacity-40"
             >
               저장
             </button>

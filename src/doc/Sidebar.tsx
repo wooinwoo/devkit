@@ -67,7 +67,7 @@ export function Sidebar() {
         <button
           type="button"
           onClick={openFilesDialog}
-          className="flex-1 rounded-lg bg-fg px-3 py-1.5 text-xs font-semibold text-bg transition-colors hover:bg-accent hover:text-white"
+          className="flex-1 rounded-lg bg-fg px-3 py-1.5 text-xs font-semibold text-bg transition-colors hover:bg-accent"
         >
           파일 열기
         </button>
@@ -93,7 +93,10 @@ export function Sidebar() {
             title="폴더 새로고침"
             className="shrink-0 text-faint transition-colors hover:text-fg"
           >
-            ↻
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M20 7v5h-5" />
+              <path d="M19 12a7 7 0 1 1-2-5" />
+            </svg>
           </button>
         </div>
       )}
@@ -150,6 +153,9 @@ export function Sidebar() {
         role="separator"
         aria-orientation="vertical"
         aria-label="사이드바 폭 조절"
+        aria-valuemin={SIDEBAR_MIN}
+        aria-valuemax={SIDEBAR_MAX}
+        aria-valuenow={sidebarWidth}
         tabIndex={0}
         onPointerDown={startResize}
         onKeyDown={(e) => {

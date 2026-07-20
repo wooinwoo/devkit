@@ -1,30 +1,39 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { mediaSrc } from "./fs";
+import {
+  ZOOM_MAX,
+  ZOOM_MIN,
+  usePrefs,
+} from "../workspace/prefs";
 
-function useMediaSrc(path: string): string {
+function useMediaSrc(path: string): { src: string; error: string | null } {
   const [src, setSrc] = useState("");
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
-    mediaSrc(path).then((s) => {
-      if (!cancelled) setSrc(s);
-    });
+    setSrc("");
+    setError(null);
+    mediaSrc(path)
+      .then((value) => {
+        if (!cancelled) setSrc(value);
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setError((cause as Error).message ?? String(cause));
+      });
     return () => {
       cancelled = true;
     };
   }, [path]);
-  return src;
+  return { src, error };
 }
 
-const MIN = 0.1;
-const MAX = 16;
-const clamp = (v: number) => Math.min(MAX, Math.max(MIN, v));
+const clamp = (v: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, v));
 
 /** 이미지 뷰어 — 커서 기준 확대(휠), 드래그 팬, 회전, 맞춤↔100% */
 export function ImageView({ path }: { path: string }) {
-  const src = useMediaSrc(path);
+  const { zoom: scale, set, zoomReset } = usePrefs();
+  const { src, error } = useMediaSrc(path);
   const boxRef = useRef<HTMLDivElement>(null);
-  const imgRef = useRef<HTMLImageElement>(null);
-  const [scale, setScale] = useState(1);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [rot, setRot] = useState(0);
   const [fitted, setFitted] = useState(true); // true면 창에 맞춤
@@ -34,7 +43,6 @@ export function ImageView({ path }: { path: string }) {
 
   // 파일 바뀌면 초기화
   useEffect(() => {
-    setScale(1);
     setPos({ x: 0, y: 0 });
     setRot(0);
     setFitted(true);
@@ -49,19 +57,21 @@ export function ImageView({ path }: { path: string }) {
       const ox = cx - r.left - r.width / 2;
       const oy = cy - r.top - r.height / 2;
       setFitted(false);
-      setScale((s) => {
-        const ns = clamp(s * factor);
-        const k = ns / s;
-        // 커서 아래 지점이 고정되도록 위치 보정
-        setPos((p) => ({ x: ox - (ox - p.x) * k, y: oy - (oy - p.y) * k }));
-        return ns;
-      });
+      const next = clamp(scale * factor);
+      const ratio = next / scale;
+      // 커서 아래 지점이 고정되도록 위치 보정
+      setPos((p) => ({
+        x: ox - (ox - p.x) * ratio,
+        y: oy - (oy - p.y) * ratio,
+      }));
+      set("zoom", next);
     },
-    [],
+    [scale, set],
   );
 
   const onWheel = useCallback(
     (e: React.WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) return;
       // Ctrl 없이도 이미지 뷰어에선 휠=줌 (사진 뷰어 관례)
       e.preventDefault();
       zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX, e.clientY);
@@ -86,17 +96,17 @@ export function ImageView({ path }: { path: string }) {
   };
 
   const reset = () => {
-    setScale(1);
+    zoomReset();
     setPos({ x: 0, y: 0 });
     setFitted(true);
   };
   const actual = () => {
-    setScale(1);
+    zoomReset();
     setPos({ x: 0, y: 0 });
     setFitted(false);
   };
 
-  const moving = !fitted && scale !== 1;
+  const moving = !fitted || scale !== 1;
 
   return (
     <div className="relative flex h-full flex-col bg-bg-deep/40">
@@ -108,7 +118,12 @@ export function ImageView({ path }: { path: string }) {
         <span className="mx-1 h-3.5 w-px bg-line-soft" />
         <button type="button" onClick={reset} className="px-1.5 hover:text-fg" title="창에 맞춤">맞춤</button>
         <button type="button" onClick={actual} className="px-1.5 hover:text-fg" title="실제 크기">100%</button>
-        <button type="button" onClick={() => setRot((r) => (r + 90) % 360)} className="px-1.5 hover:text-fg" title="회전" aria-label="회전">⟳</button>
+        <button type="button" onClick={() => setRot((r) => (r + 90) % 360)} className="px-1.5 hover:text-fg" title="회전" aria-label="회전">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <path d="M20 7v5h-5" />
+            <path d="M19 12a7 7 0 1 1-2-5" />
+          </svg>
+        </button>
       </div>
 
       <div
@@ -121,10 +136,10 @@ export function ImageView({ path }: { path: string }) {
         className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-6"
         style={{ cursor: moving ? (drag.current ? "grabbing" : "grab") : "default" }}
       >
-        {src && (
+        {error && <p className="px-6 text-center text-sm text-rose">이미지 열기 실패: {error}</p>}
+        {src && !error && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            ref={imgRef}
             src={src}
             alt={path.split(/[\\/]/).pop() ?? "이미지"}
             draggable={false}
@@ -149,10 +164,11 @@ function innerCenter(ref: React.RefObject<HTMLDivElement | null>) {
 
 /** 영상 뷰어 — webview 코덱 범위 내 재생 (H.264 mp4·webm 등) */
 export function VideoView({ path }: { path: string }) {
-  const src = useMediaSrc(path);
+  const { src, error } = useMediaSrc(path);
   return (
     <div className="flex h-full items-center justify-center bg-black/90 p-4">
-      {src && (
+      {error && <p className="text-center text-sm text-rose">영상 열기 실패: {error}</p>}
+      {src && !error && (
         // eslint-disable-next-line jsx-a11y/media-has-caption
         <video src={src} controls className="max-h-full max-w-full rounded-lg" />
       )}

@@ -123,16 +123,22 @@ function Node({
   if (!node.kind) {
     return (
       <li>
-        <span
+        <button
+          type="button"
+          onClick={() => {
+            void openWithDefault(node.path).catch((error: unknown) => {
+              window.alert((error as Error).message ?? String(error));
+            });
+          }}
           onContextMenu={(e) => onContext(e, node)}
-          title="devkit에서 열 수 없는 형식이에요 (우클릭 → 기본 앱)"
+          title="devkit에서 열 수 없어 기본 앱으로 열어요"
           className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[13px] text-faint"
         >
           <span className="shrink-0 rounded bg-fg/5 px-1 py-px font-mono text-[9px] font-semibold text-faint">
             {extLabel(node.name)}
           </span>
           <span className="truncate">{node.name}</span>
-        </span>
+        </button>
       </li>
     );
   }
@@ -165,7 +171,7 @@ export function FileTree() {
     openPaths,
     recentFiles,
     refreshFolder,
-    close,
+    closePaths,
   } = useDocs();
   const [query, setQuery] = useState("");
   const [menu, setMenu] = useState<{ x: number; y: number; node: TreeNode } | null>(
@@ -191,6 +197,59 @@ export function FileTree() {
     await refreshFolder();
   }
 
+  function report(promise: Promise<void> | undefined) {
+    void promise?.catch((error: unknown) => {
+      window.alert((error as Error).message ?? String(error));
+    });
+  }
+
+  function askName(message: string, initial = ""): string | null {
+    const name = window.prompt(message, initial)?.trim();
+    if (!name) return null;
+    if (name === "." || name === ".." || /[\\/\0]/.test(name)) {
+      window.alert("이름에는 경로 구분자를 사용할 수 없어요.");
+      return null;
+    }
+    return name;
+  }
+
+  function affectedPaths(node: TreeNode): string[] {
+    const comparable = (path: string) => {
+      const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
+      return /^[a-z]:\//i.test(normalized) || normalized.startsWith("//")
+        ? normalized.toLowerCase()
+        : normalized;
+    };
+    const nodePath = comparable(node.path);
+    const prefix = `${nodePath}/`;
+    return openDocs
+      .filter((doc) => {
+        const path = comparable(doc.path);
+        return path === nodePath || (node.isDir && path.startsWith(prefix));
+      })
+      .map((doc) => doc.path);
+  }
+
+  function closeAffected(node: TreeNode): boolean {
+    return closePaths(affectedPaths(node));
+  }
+
+  function createFileAt(dir: string) {
+    const name = askName("새 파일 이름 (예: memo.md, data.xlsx)");
+    if (!name) return;
+    const path = `${dir}${sep(dir)}${name}`;
+    void withRefresh(async () => {
+      await createFile(path);
+      if (kindOf(path)) await openPaths([path]);
+    });
+  }
+
+  function createDirAt(dir: string) {
+    const name = askName("새 폴더 이름");
+    if (!name) return;
+    void withRefresh(() => createDir(`${dir}${sep(dir)}${name}`));
+  }
+
   function menuItems(node: TreeNode): MenuItem[] {
     const targetDir = node.isDir ? node.path : dirOf(node.path);
     const s = sep(node.path);
@@ -201,15 +260,16 @@ export function FileTree() {
     if (!node.isDir && !node.kind) {
       items.push({
         label: "기본 앱으로 열기",
-        run: () => void openWithDefault(node.path),
+        run: () => report(openWithDefault(node.path)),
       });
     }
     items.push(
       {
         label: "이름 변경",
         run: () => {
-          const name = window.prompt("새 이름", node.name);
+          const name = askName("새 이름", node.name);
           if (!name || name === node.name) return;
+          if (!closeAffected(node)) return;
           void withRefresh(() => renamePath(node.path, targetDir + s + name));
         },
       },
@@ -218,41 +278,27 @@ export function FileTree() {
         danger: true,
         run: () => {
           if (!window.confirm(`"${node.name}" 을(를) 휴지통으로 보낼까요?`)) return;
-          void withRefresh(async () => {
-            await deletePath(node.path);
-            if (openDocs.some((d) => d.path === node.path)) close(node.path);
-          });
+          if (!closeAffected(node)) return;
+          void withRefresh(() => deletePath(node.path));
         },
       },
       { label: "-", run: () => {} },
       {
         label: "새 파일",
-        run: () => {
-          const name = window.prompt("새 파일 이름 (예: memo.md)");
-          if (!name) return;
-          const p = targetDir + s + name;
-          void withRefresh(async () => {
-            await createFile(p);
-            if (kindOf(p)) await openPaths([p]);
-          });
-        },
+        run: () => createFileAt(targetDir),
       },
       {
         label: "새 폴더",
-        run: () => {
-          const name = window.prompt("새 폴더 이름");
-          if (!name) return;
-          void withRefresh(() => createDir(targetDir + s + name));
-        },
+        run: () => createDirAt(targetDir),
       },
       { label: "-", run: () => {} },
       {
         label: "탐색기에서 보기",
-        run: () => void revealInDir(node.path),
+        run: () => report(revealInDir(node.path)),
       },
       {
         label: "경로 복사",
-        run: () => void navigator.clipboard?.writeText(node.path),
+        run: () => report(navigator.clipboard?.writeText(node.path)),
       },
     );
     return items;
@@ -262,15 +308,29 @@ export function FileTree() {
   if (folder) {
     return (
       <div className="flex flex-col">
-        <div className="px-1 pb-2">
+        <div className="flex gap-1 px-1 pb-2">
           <input
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="파일 검색"
             aria-label="파일 검색"
-            className="w-full rounded-md border border-line-soft bg-bg px-2.5 py-1 text-xs text-text outline-none placeholder:text-faint focus:border-accent"
+            className="min-w-0 flex-1 rounded-md border border-line-soft bg-bg px-2.5 py-1 text-xs text-text outline-none placeholder:text-faint focus:border-accent"
           />
+          <button
+            type="button"
+            onClick={() => createFileAt(folder.root)}
+            className="shrink-0 rounded-md border border-line-soft px-2 text-xs text-muted hover:border-fg hover:text-fg"
+          >
+            새 파일
+          </button>
+          <button
+            type="button"
+            onClick={() => createDirAt(folder.root)}
+            className="shrink-0 rounded-md border border-line-soft px-2 text-xs text-muted hover:border-fg hover:text-fg"
+          >
+            새 폴더
+          </button>
         </div>
         {folder.tree.length === 0 ? (
           <p className="px-2 py-3 text-xs text-faint">이 폴더는 비어 있어요.</p>

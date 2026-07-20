@@ -16,6 +16,11 @@ export function isTextKind(k: DocKind): boolean {
   return k === "markdown" || k === "html" || k === "text";
 }
 
+/** 바이너리는 명시적으로 허용한 serializer가 있는 형식만 편집한다. */
+export function isEditableDoc(kind: DocKind, path: string): boolean {
+  return isTextKind(kind) || (kind === "xlsx" && path.toLowerCase().endsWith(".xlsx"));
+}
+
 const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
 const VIDEO_EXTS = ["mp4", "webm", "ogv", "mov", "m4v"];
 const TEXT_EXTS = [
@@ -41,6 +46,7 @@ export interface OpenDoc {
   content: string; // 현재 편집 중인 내용
   saved: string; // 마지막 저장된 내용 (dirty 판정용)
   status: "loading" | "ready" | "error";
+  loadId: number;
   error?: string;
 }
 
@@ -51,7 +57,6 @@ export interface ViewerState {
   openDocs: OpenDoc[];
   activePath: string | null;
   viewMode: ViewMode;
-  htmlAllowScripts: boolean;
 }
 
 export function kindOf(path: string): DocKind | null {
@@ -65,7 +70,7 @@ export function kindOf(path: string): DocKind | null {
   if (ext === "pdf") return "pdf";
   if (ext === "xlsx" || ext === "xls" || ext === "csv" || ext === "tsv")
     return "xlsx";
-  if (ext === "pptx" || ext === "ppt") return "pptx";
+  if (ext === "pptx") return "pptx";
   if (IMAGE_EXTS.includes(ext)) return "image";
   if (VIDEO_EXTS.includes(ext)) return "video";
   if (TEXT_EXTS.includes(ext)) return "text";
@@ -75,7 +80,7 @@ export function kindOf(path: string): DocKind | null {
 /** 열기 다이얼로그·폴더 스캔에서 허용할 전체 확장자 */
 export const ALL_EXTS = [
   "md", "markdown", "html", "htm", "hwp", "hwpx", "pdf",
-  "xlsx", "xls", "csv", "tsv", "pptx", "ppt", "docx", "ipynb",
+  "xlsx", "xls", "csv", "tsv", "pptx", "docx", "ipynb",
   ...IMAGE_EXTS, ...VIDEO_EXTS, ...TEXT_EXTS,
 ];
 

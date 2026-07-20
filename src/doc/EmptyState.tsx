@@ -5,7 +5,7 @@ export function EmptyState() {
   return (
     <div className="flex h-full flex-col items-center justify-center px-6 text-center">
       <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-faint">
-        devkit — document viewer
+        devkit · document viewer
       </p>
       <h2 className="mt-4 text-2xl font-bold tracking-tight text-fg">
         문서를 열어보세요
@@ -18,7 +18,7 @@ export function EmptyState() {
         <button
           type="button"
           onClick={openFilesDialog}
-          className="rounded-full bg-fg px-6 py-2.5 text-sm font-semibold text-bg transition-colors hover:bg-accent hover:text-white"
+          className="rounded-full bg-fg px-6 py-2.5 text-sm font-semibold text-bg transition-colors hover:bg-accent"
         >
           파일 열기
         </button>

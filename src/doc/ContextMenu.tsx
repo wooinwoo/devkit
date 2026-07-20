@@ -38,8 +38,15 @@ export function ContextMenu({
   return (
     <ul
       role="menu"
-      style={{ top: y, left: x }}
-      className="fixed z-50 min-w-40 overflow-hidden rounded-lg border border-line-soft bg-bg py-1 shadow-xl"
+      style={{
+        top: Math.max(8, Math.min(y, window.innerHeight - 8)),
+        left: Math.max(8, Math.min(x, window.innerWidth - 8)),
+        transform: `${x > window.innerWidth / 2 ? "translateX(-100%)" : ""} ${
+          y > window.innerHeight / 2 ? "translateY(-100%)" : ""
+        }`,
+        maxHeight: "calc(100vh - 1rem)",
+      }}
+      className="fixed z-50 min-w-40 overflow-auto rounded-lg border border-line-soft bg-bg py-1 shadow-xl"
     >
       {items.map((it, i) =>
         it.label === "-" ? (

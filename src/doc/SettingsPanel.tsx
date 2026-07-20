@@ -17,17 +17,17 @@ const WIDTHS: { id: DocWidth; label: string }[] = [
   { id: "full", label: "전체" },
 ];
 const SHORTCUTS: [string, string][] = [
-  ["파일 열기", "Ctrl+O"],
-  ["저장", "Ctrl+S"],
-  ["빠른 이동 · 명령", "Ctrl+K"],
-  ["찾기 (소스)", "Ctrl+F"],
-  ["탭 닫기", "Ctrl+W"],
-  ["탭 전환", "Ctrl+Tab"],
-  ["탭 1~9 선택", "Ctrl+1~9"],
-  ["컨텐츠 확대·축소", "Ctrl+± · Ctrl+휠"],
-  ["사이드바 접기", "Ctrl+B"],
+  ["파일 열기", "Ctrl/⌘+O"],
+  ["저장", "Ctrl/⌘+S"],
+  ["빠른 이동 · 명령", "Ctrl/⌘+K"],
+  ["찾기 (소스)", "Ctrl/⌘+F"],
+  ["탭 닫기", "Ctrl/⌘+W"],
+  ["탭 전환", "Ctrl/⌘+Tab"],
+  ["탭 1~9 선택", "Ctrl/⌘+1~9"],
+  ["컨텐츠 확대·축소", "Ctrl/⌘+± · Ctrl/⌘+휠"],
+  ["사이드바 접기", "Ctrl/⌘+B"],
   ["집중 모드", "F8"],
-  ["설정", "Ctrl+,"],
+  ["설정", "Ctrl/⌘+,"],
 ];
 
 function Segmented<T extends string>({
@@ -117,10 +117,11 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
           </section>
 
           <section className="flex items-center justify-between">
-            <span className="text-[13px] text-text">자동 저장</span>
+            <span className="text-[13px] text-text">텍스트 자동 저장</span>
             <button
               type="button"
               role="switch"
+              aria-label="텍스트 자동 저장"
               aria-checked={autosave}
               onClick={() => set("autosave", !autosave)}
               className={`relative h-5 w-9 rounded-full transition-colors ${
@@ -128,7 +129,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
               }`}
             >
               <span
-                className={`absolute top-0.5 size-4 rounded-full bg-white transition-transform ${
+                className={`absolute top-0.5 size-4 rounded-full bg-bg transition-transform ${
                   autosave ? "translate-x-4" : "translate-x-0.5"
                 }`}
               />

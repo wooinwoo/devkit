@@ -10,6 +10,7 @@ export function PptxView({ path }: { path: string }) {
 
   useEffect(() => {
     let cancelled = false;
+    let previewer: ReturnType<typeof init> | undefined;
     setLoading(true);
     setErr(null);
     (async () => {
@@ -18,7 +19,7 @@ export function PptxView({ path }: { path: string }) {
         const host = hostRef.current;
         if (cancelled || !host) return;
         host.replaceChildren();
-        const previewer = init(host, {
+        previewer = init(host, {
           width: host.clientWidth || 900,
           mode: "list",
         });
@@ -38,13 +39,15 @@ export function PptxView({ path }: { path: string }) {
     })();
     return () => {
       cancelled = true;
+      previewer?.destroy();
+      hostRef.current?.replaceChildren();
     };
   }, [path]);
 
   return (
     <div className="h-full overflow-auto bg-bg-deep/50 p-6">
       {err && (
-        <p className="text-center text-sm text-rose">ppt 렌더 실패: {err}</p>
+        <p className="text-center text-sm text-rose">pptx 렌더 실패: {err}</p>
       )}
       {loading && !err && (
         <p className="text-center text-sm text-faint">슬라이드 렌더링 중…</p>

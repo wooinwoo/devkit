@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
 
 jobs:
   build:
@@ -44,14 +43,21 @@ jobs:
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: 프론트 의존성
-        run: npm install
+        run: npm ci
+
+      - name: 버전·회귀 검사
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node scripts/check-release-version.mjs
+          npm test
+          cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: 빌드 + Release 업로드
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 자동 업데이트 서명 — TAURI_SIGNING_PRIVATE_KEY 시크릿 등록 후
-          # tauri.conf.json 의 bundle.createUpdaterArtifacts 를 true 로 켜면 활성화된다.
+          # createUpdaterArtifacts=true 이므로 두 서명 시크릿이 반드시 필요하다.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
@@ -67,5 +73,17 @@ jobs:
             - **Linux**: `.AppImage` / `.deb` / `.rpm`
 
             Tauri 2 · React 19 · 오프라인 동작.
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 모든 설치본 완료 후 릴리스 공개
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
