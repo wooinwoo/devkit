@@ -508,7 +508,12 @@ export function XlsxView({
       <p className="shrink-0 border-t border-line-soft px-3 py-1 font-mono text-xs text-faint">
         {editNotice ??
           (editable && spreadsheet.editable
-            ? "값 편집·표 붙여넣기를 지원해요. 텍스트 숫자는 '001처럼 입력하고 Ctrl+S로 저장하세요."
+            ? [
+                "값 편집·표 붙여넣기를 지원해요. 텍스트 숫자는 '001처럼 입력하고 Ctrl+S로 저장하세요.",
+                spreadsheet.encodingNotice,
+              ]
+                .filter(Boolean)
+                .join(" ")
             : spreadsheet.readOnlyReason ??
               "이 형식은 보기와 복사만 지원해요. 셀 편집은 .xlsx 파일에서 사용할 수 있어요.")}
       </p>

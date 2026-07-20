@@ -4,24 +4,34 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const source = await readFile(join(root, "src/doc/xlsxModel.ts"), "utf8");
 const xlsxUrl = pathToFileURL(join(root, "node_modules/xlsx/xlsx.mjs")).href;
-const output = ts
-  .transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-  })
-  .outputText.replace('from "xlsx"', `from "${xlsxUrl}"`);
-const model = await import(
-  `data:text/javascript;base64,${Buffer.from(output).toString("base64")}`
-);
+
+/** TS 모듈을 data: URL 로 올린다. 상대 임포트는 먼저 올린 모듈 URL 로 바꾼다. */
+const moduleCache = new Map();
+async function load(relative) {
+  const cached = moduleCache.get(relative);
+  if (cached) return cached;
+  const source = await readFile(join(root, relative), "utf8");
+  let output = ts
+    .transpileModule(source, {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    })
+    .outputText.replaceAll('from "xlsx"', `from "${xlsxUrl}"`);
+  for (const spec of source.match(/from "\.\/[\w-]+"/g) ?? []) {
+    const name = spec.slice(7, -1);
+    const dep = await load(`${dirname(relative)}/${name}.ts`);
+    output = output.replaceAll(spec, `from "${dep.url}"`);
+  }
+  const url = `data:text/javascript;base64,${Buffer.from(output).toString("base64")}`;
+  const module = { url, ...(await import(url)) };
+  moduleCache.set(relative, module);
+  return module;
+}
+
+const model = await load("src/doc/xlsxModel.ts");
+const patch = await load("src/doc/xlsxPatch.ts");
+const types = await load("src/doc/types.ts");
 const XLSX = await import(xlsxUrl);
-const typesSource = await readFile(join(root, "src/doc/types.ts"), "utf8");
-const typesOutput = ts.transpileModule(typesSource, {
-  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-}).outputText;
-const types = await import(
-  `data:text/javascript;base64,${Buffer.from(typesOutput).toString("base64")}`
-);
 
 if (!types.isEditableDoc("xlsx", "sample.xlsx")) {
   throw new Error("XLSX 편집이 허용되지 않음");
@@ -41,9 +51,12 @@ if (!emptyLoaded.editable || emptyLoaded.sheets[0].rows.length !== 100 || emptyL
 for (const [kind, path] of [
   ["pdf", "sample.pdf"],
   ["xlsx", "sample.xls"],
-  ["xlsx", "sample.csv"],
+  ["docx", "sample.docx"],
 ]) {
   if (types.isEditableDoc(kind, path)) throw new Error(`${path} 저장이 허용됨`);
+}
+for (const path of ["sample.csv", "sample.tsv"]) {
+  if (!types.isEditableDoc("xlsx", path)) throw new Error(`${path} 편집이 막힘`);
 }
 
 const sheet = XLSX.utils.aoa_to_sheet([[1, 2], ["원본", true]]);
@@ -215,6 +228,7 @@ try {
 }
 if (!invalidAddressRejected) throw new Error("비표준 셀 주소가 거부되지 않음");
 
+// 수식이 있는 통합문서: 통합문서는 열되 수식 셀만 막고, 저장해도 수식이 남는다.
 const formulaSheet = XLSX.utils.aoa_to_sheet([[1, 2]]);
 formulaSheet.B1 = { t: "n", f: "A1*2", v: 2 };
 const formulaWorkbook = XLSX.utils.book_new();
@@ -223,11 +237,41 @@ const formulaBytes = new Uint8Array(
   XLSX.write(formulaWorkbook, { type: "array", bookType: "xlsx" }),
 );
 const formulaLoaded = model.readSpreadsheet("formula.xlsx", formulaBytes);
-if (formulaLoaded.editable || !formulaLoaded.readOnlyReason?.includes("수식")) {
-  throw new Error("수식 통합문서가 읽기 전용이 아님");
+if (!formulaLoaded.editable) {
+  throw new Error(`수식 통합문서가 읽기 전용임: ${formulaLoaded.readOnlyReason}`);
 }
+if (model.spreadsheetCellEditable(formulaLoaded, 0, 0, 1)) {
+  throw new Error("수식 셀이 편집 가능함");
+}
+if (!model.spreadsheetCellEditable(formulaLoaded, 0, 0, 0)) {
+  throw new Error("수식이 참조하는 일반 셀이 편집 불가함");
+}
+const formulaSaved = XLSX.read(
+  model.serializeSpreadsheet(
+    "formula.xlsx",
+    formulaBytes,
+    model.updateSpreadsheetDraft("", "수식", "A1", "9"),
+  ),
+  { type: "array", cellFormula: true },
+);
+if (formulaSaved.Sheets["수식"].B1?.f !== "A1*2") {
+  throw new Error("저장 후 수식이 사라짐");
+}
+if (formulaSaved.Sheets["수식"].A1?.v !== 9) throw new Error("수식 옆 셀 저장 실패");
+let formulaCellRejected = false;
+try {
+  model.serializeSpreadsheet(
+    "formula.xlsx",
+    formulaBytes,
+    JSON.stringify([["수식", "B1", "7"]]),
+  );
+} catch {
+  formulaCellRejected = true;
+}
+if (!formulaCellRejected) throw new Error("수식 셀 덮어쓰기가 허용됨");
 
-const styledSheet = XLSX.utils.aoa_to_sheet([[1.25]]);
+// 서식이 있는 통합문서: 편집 가능해야 하고, 저장해도 표시 형식이 남는다.
+const styledSheet = XLSX.utils.aoa_to_sheet([[1.25, 2.5]]);
 styledSheet.A1.z = "0.00";
 const styledWorkbook = XLSX.utils.book_new();
 XLSX.utils.book_append_sheet(styledWorkbook, styledSheet, "서식");
@@ -239,9 +283,71 @@ const styledBytes = new Uint8Array(
   }),
 );
 const styledLoaded = model.readSpreadsheet("styled.xlsx", styledBytes);
-if (styledLoaded.editable || !styledLoaded.readOnlyReason?.includes("서식")) {
-  throw new Error("서식 통합문서가 읽기 전용이 아님");
+if (!styledLoaded.editable) {
+  throw new Error(`서식 통합문서가 읽기 전용임: ${styledLoaded.readOnlyReason}`);
 }
+const styledSaved = model.serializeSpreadsheet(
+  "styled.xlsx",
+  styledBytes,
+  model.updateSpreadsheetDraft("", "서식", "A1", "3.5"),
+);
+const styledBook = XLSX.read(styledSaved, { type: "array", cellStyles: true, cellNF: true });
+if (styledBook.Sheets["서식"].A1?.v !== 3.5) throw new Error("서식 셀 값 저장 실패");
+if (styledBook.Sheets["서식"].A1?.z !== "0.00") {
+  throw new Error(`저장 후 표시 형식이 사라짐: ${styledBook.Sheets["서식"].A1?.z}`);
+}
+
+// 편집한 시트 XML과 workbook.xml 외의 파트는 바이트 그대로 남아야 한다.
+const partsOf = (bytes) => {
+  const cfb = XLSX.CFB.read(bytes, { type: "buffer" });
+  const map = new Map();
+  cfb.FullPaths.forEach((full, index) => {
+    const entry = cfb.FileIndex[index];
+    if (entry?.type === 2 && entry.content) {
+      map.set(full.replace(/^Root Entry\//, ""), Uint8Array.from(entry.content));
+    }
+  });
+  return map;
+};
+const beforeParts = partsOf(styledBytes);
+const afterParts = partsOf(styledSaved);
+const changedParts = [...afterParts.keys()].filter((name) => {
+  const before = beforeParts.get(name);
+  const after = afterParts.get(name);
+  return !before || before.length !== after.length || !before.every((b, i) => b === after[i]);
+});
+if (changedParts.some((name) => !/worksheets\/sheet1\.xml$|\/workbook\.xml$/.test(name))) {
+  throw new Error(`편집과 무관한 파트가 다시 쓰임: ${changedParts.join(", ")}`);
+}
+if (!afterParts.has("xl/styles.xml")) throw new Error("styles.xml 이 사라짐");
+
+// CSV: 값 편집 후 저장하면 텍스트가 그대로 다시 쓰인다.
+const csvBytes = new TextEncoder().encode("이름,수량\r\n가,1\r\n나,2\r\n");
+const csvLoaded = model.readSpreadsheet("sample.csv", csvBytes);
+if (!csvLoaded.editable) throw new Error("CSV 가 읽기 전용임");
+if (csvLoaded.sheets[0].rows[1][0] !== "가") throw new Error("CSV 파싱 실패");
+const csvSaved = model.serializeSpreadsheet(
+  "sample.csv",
+  csvBytes,
+  model.updateSpreadsheetDraft("", csvLoaded.workbook.SheetNames[0], "B3", "99"),
+);
+const csvText = new TextDecoder().decode(csvSaved);
+if (!csvText.includes("나,99")) throw new Error(`CSV 저장 실패: ${csvText}`);
+if (!csvText.includes("\r\n")) throw new Error("CSV 줄바꿈이 원본과 달라짐");
+
+const tsvBytes = new TextEncoder().encode("이름\t수량\n가\t1\n");
+const tsvSaved = model.serializeSpreadsheet(
+  "sample.tsv",
+  tsvBytes,
+  model.updateSpreadsheetDraft(
+    "",
+    model.readSpreadsheet("sample.tsv", tsvBytes).workbook.SheetNames[0],
+    "B2",
+    "7",
+  ),
+);
+const tsvText = new TextDecoder().decode(tsvSaved);
+if (!tsvText.includes("가\t7")) throw new Error(`TSV 저장 실패: ${tsvText}`);
 
 const dateSheet = XLSX.utils.aoa_to_sheet([[46219]]);
 dateSheet.A1 = { t: "n", v: 46219, z: "yyyy-mm-dd" };
@@ -262,5 +368,110 @@ try {
   legacyRejected = true;
 }
 if (!legacyRejected) throw new Error("legacy 형식 저장이 허용됨");
+
+// --- 다른 프로그램이 만든 통합문서 (예전엔 통째로 막던 케이스) ---
+// SheetJS 가 만들지 않는 파트(차트·공유문자열)를 넣어 실제 Excel 파일을 흉내낸다.
+const foreignBase = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(
+  foreignBase,
+  XLSX.utils.aoa_to_sheet([["머리글", 1], ["행", 2]]),
+  "Sheet1",
+);
+// bookSST 로 실제 Excel 처럼 공유 문자열 테이블을 쓰게 한다.
+const foreignArchive = XLSX.CFB.read(
+  new Uint8Array(
+    XLSX.write(foreignBase, {
+      type: "array",
+      bookType: "xlsx",
+      bookSST: true,
+      compression: true,
+    }),
+  ),
+  { type: "buffer" },
+);
+const encode = (text) => new TextEncoder().encode(text);
+const partText = (archive, suffix) => {
+  const index = archive.FullPaths.findIndex((full) => full.endsWith(suffix));
+  return index < 0
+    ? null
+    : new TextDecoder().decode(Uint8Array.from(archive.FileIndex[index].content));
+};
+XLSX.CFB.utils.cfb_add(
+  foreignArchive,
+  "/xl/charts/chart1.xml",
+  encode('<?xml version="1.0"?><chartSpace>차트 자리</chartSpace>'),
+);
+// 우리가 모델링하지 않는 시트 기능(열 너비·조건부 서식)을 원본 XML 에 심는다.
+XLSX.CFB.utils.cfb_add(
+  foreignArchive,
+  "/xl/worksheets/sheet1.xml",
+  encode(
+    partText(foreignArchive, "worksheets/sheet1.xml")
+      .replace(
+        "<sheetData>",
+        '<cols><col min="1" max="1" width="20" customWidth="1"/></cols><sheetData>',
+      )
+      .replace(
+        "</worksheet>",
+        '<conditionalFormatting sqref="B1:B2"><cfRule type="cellIs" dxfId="0" priority="1" operator="greaterThan"><formula>1</formula></cfRule></conditionalFormatting></worksheet>',
+      ),
+  ),
+);
+XLSX.CFB.utils.cfb_add(
+  foreignArchive,
+  "/docProps/app.xml",
+  encode(
+    partText(foreignArchive, "docProps/app.xml").replace(
+      /<Application>[^<]*<\/Application>/,
+      "<Application>Microsoft Excel</Application>",
+    ),
+  ),
+);
+const foreignBytes = new Uint8Array(
+  XLSX.CFB.write(foreignArchive, { type: "array", fileType: "zip", compression: true }),
+);
+
+const foreignLoaded = model.readSpreadsheet("foreign.xlsx", foreignBytes);
+if (!foreignLoaded.editable) {
+  throw new Error(`외부 프로그램 통합문서가 읽기 전용임: ${foreignLoaded.readOnlyReason}`);
+}
+if (foreignLoaded.sheets[0].rows[0][0] !== "머리글") {
+  throw new Error(`공유 문자열 읽기 실패: ${JSON.stringify(foreignLoaded.sheets[0].rows)}`);
+}
+const foreignSaved = model.serializeSpreadsheet(
+  "foreign.xlsx",
+  foreignBytes,
+  model.updateSpreadsheetDraftBatch("", "Sheet1", [["B2", "50"], ["C1", "새 값"]]),
+);
+const foreignParts = partsOf(foreignSaved);
+const foreignSheetXml = new TextDecoder().decode(foreignParts.get("xl/worksheets/sheet1.xml"));
+if (!foreignParts.has("xl/charts/chart1.xml")) throw new Error("차트 파트가 사라짐");
+if (
+  new TextDecoder().decode(foreignParts.get("xl/sharedStrings.xml")) !==
+  new TextDecoder().decode(partsOf(foreignBytes).get("xl/sharedStrings.xml"))
+) {
+  throw new Error("공유 문자열 테이블이 다시 쓰임");
+}
+if (!foreignSheetXml.includes("<conditionalFormatting")) throw new Error("조건부 서식이 사라짐");
+if (!foreignSheetXml.includes('<col min="1" max="1" width="20"')) throw new Error("열 너비가 사라짐");
+if (!foreignSheetXml.includes('<c r="A1" t="s"><v>0</v></c>')) {
+  throw new Error(`건드리지 않은 공유 문자열 셀이 바뀜: ${JSON.stringify(foreignSheetXml)}`);
+}
+if (!foreignSheetXml.includes("<ignoredErrors>")) {
+  throw new Error("모델링하지 않은 시트 요소가 사라짐");
+}
+const foreignBook = XLSX.read(foreignSaved, { type: "array" });
+if (foreignBook.Sheets.Sheet1.B2?.v !== 50) throw new Error("외부 통합문서 값 저장 실패");
+if (foreignBook.Sheets.Sheet1.C1?.v !== "새 값") throw new Error("새 셀 추가 실패");
+if (foreignBook.Sheets.Sheet1.A2?.v !== "행") throw new Error("공유 문자열 참조가 깨짐");
+
+// 패처 단위: 열 순서와 XML 이스케이프
+const patched = patch.patchSheetXml(
+  '<worksheet><sheetData><row r="1"><c r="B1"><v>1</v></c></row></sheetData></worksheet>',
+  new Map([["A1", { kind: "string", value: "<&>" }]]),
+);
+if (!patched.includes('<c r="A1" t="inlineStr"><is><t>&lt;&amp;&gt;</t></is></c><c r="B1">')) {
+  throw new Error(`셀 삽입 순서 또는 이스케이프 실패: ${patched}`);
+}
 
 console.log("xlsx edit round-trip ok");

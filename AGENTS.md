@@ -34,7 +34,8 @@ cd src-tauri && cargo check      # Rust 컴파일
 
 - `src/doc/types.ts` — `DocKind`, `kindOf(path)`, `ALL_EXTS`, `isTextKind`. **새 포맷 추가 시 여기 + `lib.rs` doc_kind 둘 다 수정.**
 - `src/doc/DocViewer.tsx` — `doc.kind` → 뷰어 라우팅. `ownsScroll`(자체 스크롤·확대: pdf/xlsx/image/source) 은 전역 zoom 래퍼 밖, 나머지(flow)는 스크롤+zoom 래퍼 안.
-- `src/doc/xlsxModel.ts` — xlsx 값 패치·안전 판별·직렬화. 원본 서식 손실 가능성이 있으면 읽기 전용으로 막으며, 저장 gate를 우회하지 말 것.
+- `src/doc/xlsxModel.ts` — 표 읽기·셀 편집 판정·저장 진입점. CSV/TSV 직렬화도 여기.
+- `src/doc/xlsxPatch.ts` — 원본 xlsx 아카이브의 시트 XML만 고쳐 쓰는 외과적 패처. 나머지 파트는 바이트 그대로 보존한다.
 - 뷰어: `MarkdownEditor`(Milkdown Crepe), `SourceEditor`(CodeMirror 6), `PdfView`(pdf.js + textLayer), `XlsxView`(SheetJS 그리드+셀선택), `DocxView`(docx-preview), `IpynbView`, `HwpView`(rhwp WASM), `PptxView`, `MediaView`(image/video), `HtmlView`.
 
 ### UI
@@ -94,7 +95,11 @@ sed -i 's/^version = "0.16.0"/version = "0.17.0"/' src-tauri/Cargo.toml
 - **마크다운 커서**: `featureConfigs: { [Crepe.Feature.Cursor]: { virtual: false } }`. 가상 커서 + CSS zoom 이면 캐럿이 사라진다.
 - **저장 유실 방지**: 에디터는 `registerEditor(path, getLatest)` 등록, `save()` 가 그 최신값을 쓴다 (디바운스 옛 값으로 저장하는 유실 차단).
 - **비신뢰 문서 격리**: IPYNB HTML은 빈 sandbox iframe, DOCX altChunk는 비활성화. `tauri.conf.json` CSP를 `null`로 되돌리지 말 것.
-- **xlsx 편집 범위**: 앱이 만든 단순 통합문서만 값 편집. 일반 Excel 파일의 gate를 넓히면 SheetJS 재직렬화로 서식·수식·차트가 손실될 수 있다.
+- **xlsx 저장은 외과적 패치**(`xlsxPatch.ts`): 원본 아카이브에서 편집한 셀이 든 시트 XML만 고쳐 넣고 나머지 파트는 바이트 그대로 복사한다. `XLSX.write` 로 통합문서를 다시 만들면 서식·차트·피벗이 날아가므로 **저장 경로를 SheetJS 직렬화로 되돌리지 말 것.**
+  - 문자열은 `sharedStrings.xml` 을 건드리지 않으려고 `inlineStr` 로 쓴다.
+  - 새 셀은 열 순서를 지켜 끼운다. 순서가 어긋나면 Excel 이 파일을 복구 대상으로 본다.
+  - 값이 바뀌면 수식 캐시가 낡으므로 `workbook.xml` 에 `fullCalcOnLoad="1"` 를 남긴다.
+  - 편집을 막아야 하는 건 셀 단위 제약(수식·병합 종속·시트 보호)뿐이다. 통합문서 전체를 막는 건 되쓸 방법이 없는 경우(매크로·구조 파손)로 한정한다.
 - **버전 표시**: 사이드바 푸터는 런타임 `getVersion()`(Tauri) + `__APP_VERSION__`(vite define, package.json) 폴백.
 - **임시 파일**은 스크래치패드에. 레포에 남기지 말 것.
 

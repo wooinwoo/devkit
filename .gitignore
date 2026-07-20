@@ -11,3 +11,7 @@ src-tauri/target
 # 로컬 다운로드 인스톨러
 dist-installers
 public/samples
+
+# 브라우저 검증 산출물 (레포 루트에 떨어지는 스크린샷·스냅샷)
+.playwright-mcp
+/*.png

@@ -18,7 +18,11 @@ export function isTextKind(k: DocKind): boolean {
 
 /** 바이너리는 명시적으로 허용한 serializer가 있는 형식만 편집한다. */
 export function isEditableDoc(kind: DocKind, path: string): boolean {
-  return isTextKind(kind) || (kind === "xlsx" && path.toLowerCase().endsWith(".xlsx"));
+  if (isTextKind(kind)) return true;
+  if (kind !== "xlsx") return false;
+  const ext = path.toLowerCase().split(".").pop();
+  // xls 는 되쓸 수 없는 옛 바이너리 형식이라 제외한다.
+  return ext === "xlsx" || ext === "csv" || ext === "tsv";
 }
 
 const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];

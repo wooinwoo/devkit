@@ -1,4 +1,10 @@
 import * as XLSX from "xlsx";
+import {
+  patchBlocker,
+  patchWorkbookBytes,
+  type PatchPlan,
+  type PatchValue,
+} from "./xlsxPatch";
 
 export const MAX_ROWS = 5000;
 export const MAX_COLS = 256;
@@ -22,22 +28,26 @@ export interface Spreadsheet {
   sheets: SpreadsheetSheet[];
   editable: boolean;
   readOnlyReason?: string;
+  /** 저장 시 원본과 달라지는 점을 미리 알린다 (예: 인코딩 변환) */
+  encodingNotice?: string;
 }
 
 /** CSV/TSV 텍스트 디코딩. UTF-8이 깨질 때만 EUC-KR(CP949)로 폴백한다. */
-function decodeCsv(bytes: Uint8Array): string {
+function decodeCsv(bytes: Uint8Array): { text: string; legacyEncoding: boolean } {
   if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
-    return new TextDecoder("utf-8").decode(bytes);
+    return { text: new TextDecoder("utf-8").decode(bytes), legacyEncoding: false };
   }
   const utf8 = new TextDecoder("utf-8").decode(bytes);
   const bad = (utf8.match(/�/g)?.length ?? 0) / Math.max(1, utf8.length);
-  if (bad < 0.002) return utf8;
+  if (bad < 0.002) return { text: utf8, legacyEncoding: false };
   try {
     const euc = new TextDecoder("euc-kr").decode(bytes);
     const eucBad = (euc.match(/�/g)?.length ?? 0) / Math.max(1, euc.length);
-    return eucBad < bad ? euc : utf8;
+    return eucBad < bad
+      ? { text: euc, legacyEncoding: true }
+      : { text: utf8, legacyEncoding: false };
   } catch {
-    return utf8;
+    return { text: utf8, legacyEncoding: false };
   }
 }
 
@@ -80,24 +90,37 @@ function buildSheet(name: string, ws: XLSX.WorkSheet): SpreadsheetSheet {
   };
 }
 
-function readWorkbook(path: string, bytes: Uint8Array): XLSX.WorkBook {
+function delimiterFor(path: string): string | undefined {
   const ext = path.split(".").pop()?.toLowerCase();
-  if (ext === "csv" || ext === "tsv") {
-    const text = decodeCsv(bytes);
-    return XLSX.read(text, {
-      type: "string",
-      ...(ext === "tsv" ? { FS: "\t" } : {}),
-    });
+  if (ext === "csv") return ",";
+  if (ext === "tsv") return "\t";
+  return undefined;
+}
+
+function readWorkbook(
+  path: string,
+  bytes: Uint8Array,
+): { workbook: XLSX.WorkBook; legacyEncoding: boolean } {
+  const separator = delimiterFor(path);
+  if (separator) {
+    const { text, legacyEncoding } = decodeCsv(bytes);
+    return {
+      workbook: XLSX.read(text, { type: "string", FS: separator }),
+      legacyEncoding,
+    };
   }
-  return XLSX.read(bytes, {
-    type: "array",
-    cellDates: true,
-    cellFormula: true,
-    cellNF: true,
-    cellStyles: true,
-    sheetStubs: true,
-    xlfn: true,
-  });
+  return {
+    workbook: XLSX.read(bytes, {
+      type: "array",
+      cellDates: true,
+      cellFormula: true,
+      cellNF: true,
+      cellStyles: true,
+      sheetStubs: true,
+      xlfn: true,
+    }),
+    legacyEncoding: false,
+  };
 }
 
 function cellInput(cell?: XLSX.CellObject): string {
@@ -228,21 +251,31 @@ function worksheetOf(
     : undefined;
 }
 
-function editWorkbookCell(
+interface EditTarget {
+  worksheet: XLSX.WorkSheet;
+  position: XLSX.CellAddress;
+  previous?: XLSX.CellObject;
+}
+
+/**
+ * 안전하게 값을 바꿀 수 있는 셀인지 판정한다. 수식·병합 종속 셀·보호 시트는
+ * 외과적 저장으로도 되쓸 수 없어 막는다. 화면 편집과 저장이 같은 기준을 쓴다.
+ */
+function resolveEdit(
   workbook: XLSX.WorkBook,
   sheetName: string,
   address: string,
   input: string | null,
-): boolean {
+): EditTarget | undefined {
   const worksheet = worksheetOf(workbook, sheetName);
   if (!worksheet || worksheet["!protect"] || input?.startsWith("=")) {
-    return false;
+    return undefined;
   }
   let position: XLSX.CellAddress;
   try {
     position = XLSX.utils.decode_cell(address);
   } catch {
-    return false;
+    return undefined;
   }
   if (
     position.r < 0 ||
@@ -251,10 +284,10 @@ function editWorkbookCell(
     position.c >= MAX_COLS ||
     XLSX.utils.encode_cell(position) !== address
   ) {
-    return false;
+    return undefined;
   }
   const previous = worksheet[address] as XLSX.CellObject | undefined;
-  if (previous?.f || previous?.F) return false;
+  if (previous?.f || previous?.F) return undefined;
   const merge = worksheet["!merges"]?.find(
     ({ s, e }) =>
       position.r >= s.r &&
@@ -263,8 +296,20 @@ function editWorkbookCell(
       position.c <= e.c,
   );
   if (merge && (merge.s.r !== position.r || merge.s.c !== position.c)) {
-    return false;
+    return undefined;
   }
+  return { worksheet, position, previous };
+}
+
+function editWorkbookCell(
+  workbook: XLSX.WorkBook,
+  sheetName: string,
+  address: string,
+  input: string | null,
+): boolean {
+  const target = resolveEdit(workbook, sheetName, address, input);
+  if (!target) return false;
+  const { worksheet, position, previous } = target;
 
   const cell = cellFromInput(input, previous);
   if (cell) {
@@ -291,89 +336,10 @@ function applyEdits(
   }
 }
 
-function archiveParts(bytes: Uint8Array): Map<string, Uint8Array> {
-  const archive = XLSX.CFB.read(bytes, { type: "buffer" }) as {
-    FullPaths: string[];
-    FileIndex: {
-      type?: number;
-      content?: Uint8Array | number[];
-    }[];
-  };
-  const root = archive.FullPaths[0] ?? "Root Entry/";
-  const parts = new Map<string, Uint8Array>();
-  archive.FullPaths.forEach((fullPath, index) => {
-    const entry = archive.FileIndex[index];
-    const path = fullPath.startsWith(root) ? fullPath.slice(root.length) : fullPath;
-    if (
-      entry?.type !== 2 ||
-      !entry.content ||
-      !path ||
-      path.endsWith("/") ||
-      path.charCodeAt(0) === 1
-    ) {
-      return;
-    }
-    parts.set(path, Uint8Array.from(entry.content));
-  });
-  return parts;
-}
-
-function partText(parts: Map<string, Uint8Array>, path: string): string {
-  const bytes = parts.get(path);
-  return bytes ? new TextDecoder().decode(bytes) : "";
-}
-
-function sameBytes(left?: Uint8Array, right?: Uint8Array): boolean {
-  return Boolean(
-    left &&
-      right &&
-      left.length === right.length &&
-      left.every((byte, index) => byte === right[index]),
-  );
-}
-
-let writerDefaults: Map<string, Uint8Array> | undefined;
-function defaultWriterParts(): Map<string, Uint8Array> {
-  if (writerDefaults) return writerDefaults;
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(
-    workbook,
-    XLSX.utils.aoa_to_sheet([[1]]),
-    "Sheet1",
-  );
-  const output = XLSX.write(workbook, {
-    type: "array",
-    bookType: "xlsx",
-    cellStyles: true,
-    compression: true,
-  });
-  writerDefaults = archiveParts(new Uint8Array(output));
-  return writerDefaults;
-}
-
-const ALLOWED_PARTS = [
-  /^\[Content_Types\]\.xml$/,
-  /^_rels\/\.rels$/,
-  /^docProps\/(?:app|core)\.xml$/,
-  /^xl\/(?:workbook|styles|sharedStrings|metadata)\.xml$/,
-  /^xl\/_rels\/workbook\.xml\.rels$/,
-  /^xl\/theme\/theme\d+\.xml$/,
-  /^xl\/worksheets\/sheet\d+\.xml$/,
-];
-
-const SAFE_PROP_KEYS = new Set([
-  "Application",
-  "HyperlinksChanged",
-  "SharedDoc",
-  "LinksUpToDate",
-  "ScaleCrop",
-  "Worksheets",
-  "SheetNames",
-]);
-
 /**
- * Community SheetJS는 값을 쓰는 데는 적합하지만 고급 OOXML 파트를 완전 보존하지
- * 않는다. 원본 손실 가능성이 있는 통합문서는 처음부터 읽기 전용으로 둔다.
+ * 저장은 원본 아카이브에서 편집한 셀이 든 시트 XML만 고쳐 쓴다(xlsxPatch).
+ * 서식·수식·차트·피벗은 손대지 않으므로, 통합문서 전체를 막아야 하는 경우는
+ * 값을 되쓸 방법 자체가 없는 구조뿐이다. 개별 셀 제약은 cellEditRefusal 이 본다.
  */
 function xlsxReadOnlyReason(
   path: string,
@@ -383,87 +349,10 @@ function xlsxReadOnlyReason(
   if (!path.toLowerCase().endsWith(".xlsx")) {
     return "이 형식은 보기와 복사만 지원해요. 셀 편집은 .xlsx 파일에서 사용할 수 있어요.";
   }
-
-  if (
-    workbook.Props?.Application !== "SheetJS" ||
-    Object.keys(workbook.Props ?? {}).some((key) => !SAFE_PROP_KEYS.has(key)) ||
-    Object.keys(workbook.Custprops ?? {}).length > 0 ||
-    workbook.vbaraw
-  ) {
-    return "다른 프로그램의 서식 또는 문서 정보가 있어 원본 보호를 위해 읽기 전용으로 열었어요.";
+  if (workbook.vbaraw) {
+    return "매크로가 들어 있어 원본 보호를 위해 읽기 전용으로 열었어요.";
   }
-  if (workbook.Workbook?.Sheets?.some((sheet) => sheet.Hidden)) {
-    return "숨겨진 시트가 있어 원본 보호를 위해 읽기 전용으로 열었어요.";
-  }
-
-  for (const name of workbook.SheetNames) {
-    const worksheet = worksheetOf(workbook, name);
-    if (!worksheet) continue;
-    if (worksheet["!protect"]) {
-      return "보호된 시트가 있어 원본 보호를 위해 읽기 전용으로 열었어요.";
-    }
-    if (worksheet["!cols"]?.length || worksheet["!rows"]?.length) {
-      return "행 또는 열 서식이 있어 원본 보호를 위해 읽기 전용으로 열었어요.";
-    }
-    for (const [address, value] of Object.entries(worksheet)) {
-      if (address.startsWith("!") || !value || typeof value !== "object") continue;
-      const cell = value as XLSX.CellObject;
-      if (cell.f || cell.F) {
-        return "수식이 있어 계산 결과 보호를 위해 읽기 전용으로 열었어요.";
-      }
-      if (cell.c?.length || cell.l || cell.r) {
-        return "메모, 링크 또는 서식 있는 텍스트가 있어 읽기 전용으로 열었어요.";
-      }
-    }
-  }
-
-  if ((workbook.Workbook?.Names?.length ?? 0) > 0) {
-    return "이름 정의가 있어 원본 보호를 위해 읽기 전용으로 열었어요.";
-  }
-
-  let parts: Map<string, Uint8Array>;
-  try {
-    parts = archiveParts(bytes);
-  } catch {
-    return "파일 구조를 안전하게 확인할 수 없어 읽기 전용으로 열었어요.";
-  }
-
-  if ([...parts.keys()].some((part) => !ALLOWED_PARTS.some((rule) => rule.test(part)))) {
-    return "차트, 이미지 또는 고급 Excel 기능이 있어 읽기 전용으로 열었어요.";
-  }
-
-  const defaults = defaultWriterParts();
-  if (
-    !sameBytes(parts.get("xl/styles.xml"), defaults.get("xl/styles.xml")) ||
-    !sameBytes(parts.get("xl/theme/theme1.xml"), defaults.get("xl/theme/theme1.xml"))
-  ) {
-    return "셀 서식이 있어 원본 보호를 위해 읽기 전용으로 열었어요.";
-  }
-
-  if ([...parts].some(([part, content]) =>
-    part.endsWith(".rels") && /TargetMode="External"/i.test(new TextDecoder().decode(content)))) {
-    return "외부 연결이 있어 원본 보호를 위해 읽기 전용으로 열었어요.";
-  }
-
-  const workbookXml = partText(parts, "xl/workbook.xml");
-  if (/<(?:definedNames|externalReferences|workbookProtection|fileSharing|customWorkbookViews|pivotCaches|smartTagPr|webPublishing|webPublishObjects|oleSize|extLst)\b/i.test(workbookXml)) {
-    return "고급 통합문서 설정이 있어 원본 보호를 위해 읽기 전용으로 열었어요.";
-  }
-  const sharedStrings = partText(parts, "xl/sharedStrings.xml");
-  if (/<(?:rPr|phoneticPr|rPh)\b/i.test(sharedStrings)) {
-    return "서식 있는 텍스트가 있어 원본 보호를 위해 읽기 전용으로 열었어요.";
-  }
-  for (const [part, content] of parts) {
-    if (!/^xl\/worksheets\/sheet\d+\.xml$/i.test(part)) continue;
-    const xml = new TextDecoder().decode(content);
-    if (
-      /<(?:f|sheetPr|cols|pane|autoFilter|sortState|conditionalFormatting|dataValidations?|hyperlinks|sheetProtection|protectedRanges|scenarios|customSheetViews|pageMargins|pageSetup|printOptions|headerFooter|rowBreaks|colBreaks|drawing|legacyDrawing(?:HF)?|picture|oleObjects|controls|webPublishItems|tableParts|extLst)\b/i.test(xml) ||
-      /\b(?:customHeight|customFormat|outlineLevel|collapsed|hidden)="/i.test(xml)
-    ) {
-      return "시트 서식 또는 고급 기능이 있어 원본 보호를 위해 읽기 전용으로 열었어요.";
-    }
-  }
-  return undefined;
+  return patchBlocker(bytes, workbook.SheetNames);
 }
 
 export function readSpreadsheet(
@@ -471,9 +360,11 @@ export function readSpreadsheet(
   bytes: Uint8Array,
   draft = "",
 ): Spreadsheet {
-  const workbook = readWorkbook(path, bytes);
+  const { workbook, legacyEncoding } = readWorkbook(path, bytes);
   const edits = parseEdits(draft);
-  const readOnlyReason = xlsxReadOnlyReason(path, bytes, workbook);
+  const readOnlyReason = delimiterFor(path)
+    ? undefined
+    : xlsxReadOnlyReason(path, bytes, workbook);
   applyEdits(workbook, edits);
   return {
     workbook,
@@ -482,6 +373,9 @@ export function readSpreadsheet(
     ),
     editable: !readOnlyReason,
     readOnlyReason,
+    encodingNotice: legacyEncoding
+      ? "EUC-KR 파일이라 저장하면 UTF-8로 바뀌어요."
+      : undefined,
   };
 }
 
@@ -686,28 +580,77 @@ export function updateSpreadsheetDraftBatch(
   return JSON.stringify([...edits.values()]);
 }
 
+/** Excel 날짜 일련번호의 기준일. 1900 윤년 버그까지 포함한 값이다. */
+const EXCEL_EPOCH = Date.UTC(1899, 11, 30);
+
+function toPatchValue(cell: XLSX.CellObject | undefined): PatchValue {
+  if (!cell || cell.t === "z" || cell.v == null) return { kind: "blank" };
+  if (cell.t === "n") return { kind: "number", value: Number(cell.v) };
+  if (cell.t === "b") return { kind: "bool", value: Boolean(cell.v) };
+  if (cell.t === "d" && cell.v instanceof Date) {
+    // 날짜는 일련번호로 쓴다. 셀의 표시 형식(s)은 원본 것을 그대로 이어받는다.
+    return { kind: "number", value: (cell.v.getTime() - EXCEL_EPOCH) / 86_400_000 };
+  }
+  return { kind: "string", value: String(cell.v) };
+}
+
+function detectEol(bytes: Uint8Array): "\r\n" | "\n" {
+  const head = new TextDecoder().decode(bytes.subarray(0, 4096));
+  return head.includes("\r\n") ? "\r\n" : "\n";
+}
+
+/** CSV/TSV 는 서식이 없어 전체를 다시 쓴다. 줄바꿈과 BOM 은 원본을 따른다. */
+function serializeDelimited(
+  path: string,
+  bytes: Uint8Array,
+  workbook: XLSX.WorkBook,
+  edits: CellEdit[],
+): Uint8Array {
+  applyEdits(workbook, edits, true);
+  const name = workbook.SheetNames[0];
+  const worksheet = name ? worksheetOf(workbook, name) : undefined;
+  if (!worksheet) throw new Error("표 내용을 읽을 수 없어 저장하지 못했어요.");
+  const text = XLSX.utils.sheet_to_csv(worksheet, {
+    FS: delimiterFor(path),
+    RS: detectEol(bytes),
+    blankrows: true,
+  });
+  const body = new TextEncoder().encode(text);
+  const hasBom = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
+  if (!hasBom) return body;
+  const out = new Uint8Array(body.length + 3);
+  out.set([0xef, 0xbb, 0xbf]);
+  out.set(body, 3);
+  return out;
+}
+
 export function serializeSpreadsheet(
   path: string,
   bytes: Uint8Array,
   draft: string,
 ): Uint8Array {
-  if (!path.toLowerCase().endsWith(".xlsx")) {
-    throw new Error("XLSX 파일만 수정해서 저장할 수 있어요.");
+  const lower = path.toLowerCase();
+  const { workbook } = readWorkbook(path, bytes);
+  const edits = parseEdits(draft, true);
+  if (delimiterFor(lower)) {
+    return edits.length ? serializeDelimited(lower, bytes, workbook, edits) : bytes;
   }
-  const workbook = readWorkbook(path, bytes);
+  if (!lower.endsWith(".xlsx")) {
+    throw new Error("이 형식은 수정해서 저장할 수 없어요.");
+  }
   const readOnlyReason = xlsxReadOnlyReason(path, bytes, workbook);
   if (readOnlyReason) throw new Error(readOnlyReason);
-  const edits = parseEdits(draft, true);
   if (!edits.length) return bytes;
-  applyEdits(workbook, edits, true);
-  // SheetJS가 읽은 theme raw 문자열을 다시 쓰면 한글 글꼴명이 매 저장마다
-  // 중복 인코딩된다. 위 gate가 확인한 기본 테마를 새로 생성하게 한다.
-  delete (workbook as XLSX.WorkBook & { Themes?: unknown }).Themes;
-  const output = XLSX.write(workbook, {
-    type: "array",
-    bookType: "xlsx",
-    cellStyles: true,
-    compression: true,
-  });
-  return output instanceof Uint8Array ? output : new Uint8Array(output);
+
+  // 통합문서를 다시 쓰지 않고, 원본 아카이브의 해당 시트 XML만 고쳐 넣는다.
+  const plan: PatchPlan = new Map();
+  for (const [sheet, address, input] of edits) {
+    const target = resolveEdit(workbook, sheet, address, input);
+    if (!target) {
+      throw new Error(`${sheet} 시트의 ${address} 셀을 안전하게 수정할 수 없어요.`);
+    }
+    if (!plan.has(sheet)) plan.set(sheet, new Map());
+    plan.get(sheet)!.set(address, toPatchValue(cellFromInput(input, target.previous)));
+  }
+  return patchWorkbookBytes(bytes, plan);
 }
